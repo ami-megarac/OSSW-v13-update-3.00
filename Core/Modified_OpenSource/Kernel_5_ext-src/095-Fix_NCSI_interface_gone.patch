@@ -1,0 +1,37 @@
+diff -Naur linux_org/net/ncsi/ncsi-manage.c linux/net/ncsi/ncsi-manage.c
+--- linux_org/net/ncsi/ncsi-manage.c	2021-09-16 10:58:38.363416330 +0800
++++ linux/net/ncsi/ncsi-manage.c	2021-09-16 11:00:01.315163118 +0800
+@@ -1280,7 +1280,7 @@
+ 			if (nc == hot_nc)
+ 				found = nc;
+ 
+-			ncm = &nc->modes[NCSI_MODE_LINK];
++			ncm = &nc->modes[NCSI_MODE_LINK];			
+ 			if (ncm->data[2] & 0x1) {
+ 				found = nc;
+ 				with_link = true;
+@@ -1874,7 +1874,13 @@
+ int ncsi_start_dev(struct ncsi_dev *nd)
+ {
+ 	struct ncsi_dev_priv *ndp = TO_NCSI_DEV_PRIV(nd);
+-
++		
++	if(InitComplete)	
++	{
++		ncsi_reset_dev(nd);
++		return 0;	
++	}
++	
+ 	if (nd->state != ncsi_dev_state_registered &&
+ 	    nd->state != ncsi_dev_state_functional)
+ 		return -ENOTTY;
+@@ -1899,6 +1905,9 @@
+ 	int old_state;
+ 	unsigned long flags;
+ 
++	if(InitComplete)
++		return;
++	
+ 	/* Stop the channel monitor on any active channels. Don't reset the
+ 	 * channel state so we know which were active when ncsi_start_dev()
+ 	 * is next called.

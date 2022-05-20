@@ -1,0 +1,15 @@
+--- uboot_old/oem/ami/fmh/hrotcore.c	2021-05-06 12:24:31.341659588 +0530
++++ uboot/oem/ami/fmh/hrotcore.c	2021-05-06 16:11:16.253358239 +0530
+@@ -59,7 +59,11 @@
+                 }
+                 else if(ModType == MODULE_FMH_FIRMWARE){
+                         hash_start = startaddress + fmhLocation;
+-                        size_to_hash = AllocSize - (3*PROD_SIG_OFFSET+1024);
++#ifdef CONFIG_SPX_FEATURE_PLATGUARD_SUPPORT
++                        size_to_hash = AllocSize - (3*PROD_SIG_OFFSET+1024+512); /* Reduced 512 bytes of allocated BIOS public key size to calculate hash in MODULE_FMH_FIRMWARE, to neglect calculating hash after public key + AES keys + BIOS public key */
++#else
++			size_to_hash = AllocSize - (3*PROD_SIG_OFFSET+1024);
++#endif
+ 			product_info_offset=startaddress + fmhLocation +AllocSize;
+                 }
+                 else{

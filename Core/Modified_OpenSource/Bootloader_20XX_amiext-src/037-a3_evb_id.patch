@@ -1,0 +1,11 @@
+diff -Naur uboot/arch/arm/mach-aspeed/ast2600/scu_info.c uboot_new/arch/arm/mach-aspeed/ast2600/scu_info.c
+--- uboot/arch/arm/mach-aspeed/ast2600/scu_info.c	2021-07-06 21:56:32.544077742 +0530
++++ uboot_new/arch/arm/mach-aspeed/ast2600/scu_info.c	2021-07-13 19:49:05.470758805 +0530
+@@ -24,6 +24,7 @@
+ 	SOC_ID("AST2600-A2", 0x0502030305010303),
+ 	SOC_ID("AST2620-A2", 0x0502020305010203),
+ 	SOC_ID("AST2605-A2", 0x0502010305010103),
++	SOC_ID("AST2600-A3", 0x0503030305030303),
+ };
+ 
+ void aspeed_print_soc_id(void)

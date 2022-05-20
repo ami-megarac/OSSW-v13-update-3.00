@@ -1,0 +1,14 @@
+diff -Naur linux_org/net/ncsi/ncsi-manage.c linux/net/ncsi/ncsi-manage.c
+--- linux_org/net/ncsi/ncsi-manage.c	2021-09-02 10:20:27.153548068 +0800
++++ linux/net/ncsi/ncsi-manage.c	2021-09-02 15:04:31.750588127 +0800
+@@ -1352,8 +1352,8 @@
+ 		}
+ 	}
+ 
+-#ifdef CONFIG_SPX_FEATURE_NCSI_DISABLE_HW_ARBITRATION	
+-	ndp->flags |= NCSI_DEV_HWA;
++#ifdef CONFIG_SPX_FEATURE_NCSI_DISABLE_HW_ARBITRATION
++	ndp->flags &= ~NCSI_DEV_HWA;
+ 	return false;
+ #endif	
+ 	

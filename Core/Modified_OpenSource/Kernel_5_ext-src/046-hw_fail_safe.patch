@@ -1,0 +1,31 @@
+--- kernel_old/kernel/panic.c	2021-01-11 23:07:17.473870481 +0530
++++ kernel_new/kernel/panic.c	2021-01-12 01:18:17.853932375 +0530
+@@ -66,10 +66,12 @@
+ #define WDT2_SECOND_BOOT_CODE           0x80        // Enable Second Boot Code upon reset
+ #define WDT_CUR_BOOTSRC_MASK            0x00000002
+ #define AST_WDT2_VA_BASE                0xbe812040
++#define AST_FMC_BASE                    0x1E620000
+ #define WDT2_CLR_TIMEOUT_STAT_REG       (AST_WDT2_VA_BASE + 0x14)
+ #define WDT2_CONTROL_REG                (AST_WDT2_VA_BASE + 0x0C)
+ #define WDT2_RELOAD_REG                 (AST_WDT2_VA_BASE + 0x04)
+ #define WDT2_CNT_RESTART_REG            (AST_WDT2_VA_BASE + 0x08)
++#define FMC_WDT2_REG            	AST_FMC_BASE+0x64
+ #endif
+ 
+ ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
+@@ -178,10 +180,12 @@
+        }
+ 
+ #ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
+-       /* Enabling the Second Boot code upon reset */
+-       *((volatile unsigned long *)(WDT2_CONTROL_REG)) |= (WDT2_SECOND_BOOT_CODE);
++       /* Enabling FMC WDT upon reset */
++       *((volatile unsigned long *)(AST_FMC_BASE + 0x68)) = 0xe0;//22 sec WDT time out
++       *((volatile unsigned long *)(AST_FMC_BASE + 0x6c)) = 0x4755;//reload timer value
++       *((volatile unsigned long *)(FMC_WDT2_REG)) |= (0x1);//enable FMC WDT
+ #else
+-       *((volatile unsigned long *)(WDT2_CONTROL_REG)) &= ~(WDT2_SECOND_BOOT_CODE);
++       *((volatile unsigned long *)(FMC_WDT2_REG)) = 0xEA;//disable FMC WDT
+ #endif
+        /* Enable back the Watchdog timer to start the Watchdog */
+        /* Also set the Flag to reset the CPU on Timeout */

@@ -1,0 +1,366 @@
+diff -Naur uboot_orig/oem/ami/fmh/cmd_fmh.c uboot/oem/ami/fmh/cmd_fmh.c
+--- uboot_orig/oem/ami/fmh/cmd_fmh.c	2021-07-17 19:46:00.239620893 +0530
++++ uboot/oem/ami/fmh/cmd_fmh.c	2021-07-17 19:46:43.647939786 +0530
+@@ -55,6 +55,8 @@
+ #define IMG1_index_val  0
+ #define IMG2_index_val  1
+ 
++#define OS_LOAD_ADDRESS 0x83000000
++
+ typedef struct
+ {
+     u8 major_ver;
+@@ -66,8 +68,8 @@
+ #endif
+ }VersionInfo;
+ 
++#define CE1_ADDRESS_SEGMENT 0x28000000
+ #ifdef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+-        #define CE1_ADDRESS_SEGMENT 0x28000000
+         struct spi_flash *flashspi[CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS]={NULL};
+ #endif
+ #ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
+@@ -255,13 +257,7 @@
+ int
+ ListFMH(void)
+ {
+-    //unsigned char buf[64*1024] = {0};
+-#ifdef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+     struct spi_flash *flash[CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS]= {NULL};
+-#else
+-    struct spi_flash *flash=NULL;
+-#endif
+-
+     unsigned long flashsize=0,SectorCount=0;
+     unsigned long SectorSize=0;
+     int i=0;
+@@ -269,8 +265,8 @@
+     unsigned char Name[9] = {0};
+     MODULE_INFO *mod;
+     long SkipSize;
+-#ifdef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+     int cs=0;
++    
+     for(cs=0; cs < CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS ; cs++)
+     {
+         flash[cs] = spi_flash_probe(CONFIG_ENV_SPI_BUS, cs,
+@@ -288,15 +284,6 @@
+ 
+         for(i=0;i<SectorCount;)
+         {
+-            #if 0
+-            fmh = ScanforFMH((unsigned char *)(CONFIG_SYS_FLASH_BASE+(i*SectorSize)),SectorSize);
+-            if (fmh == NULL)
+-            {
+-                i++;
+-                continue;
+-            }
+-            #endif
+-
+             fmh = ScanforFMH(flash[cs],((i*SectorSize)),SectorSize);
+             if (fmh == NULL)
+             {
+@@ -342,11 +329,10 @@
+                 SkipSize-=SectorSize;
+                 i++;
+             }
+-
+         } /* sector */
+     }
+-#else	   
+ 
++#if 0
+     flash = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
+                         CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
+     if (flash == NULL) 
+@@ -424,7 +410,6 @@
+     } /* sector */
+ 
+ 
+-#if 0
+     if(0)
+     {
+         flash_read(0,64*1024,buf);
+@@ -533,7 +518,6 @@
+ 			
+ 		} /* sector */
+ #endif
+-#endif
+ 	return 0;
+ }
+ 
+@@ -824,15 +808,12 @@
+ 
+ int GetBootImage(u8 *imagetoboot)
+ {
+-
+-//	flash_info_t *flinfo;
+ 	unsigned long i=0,SectorSize=CONFIG_SPX_FEATURE_GLOBAL_ERASE_BLOCK_SIZE;
+ 	unsigned long SectorCount=0,flashsize=0;
+ 	unsigned long watchdog_reset_status = 0;
+ 	u8 imgIndex=0,img1_presence=0,img2_presence=0;
+ 	FMH	*fmh = NULL;
+ 	MODULE_INFO *mod = NULL;
+-	struct spi_flash *flash;
+ 
+ #ifdef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+         VersionInfo firmware_ver[CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS], platform_ver[CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS];
+@@ -869,17 +850,21 @@
+     return 0;
+ #endif
+ 
++    struct spi_flash *flash[CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS]= {NULL};
++    int chipSelect = 0;
++    
++    for(chipSelect=0; chipSelect < CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS ; chipSelect++)
++    {
++    	flash[chipSelect]= spi_flash_probe(CONFIG_ENV_SPI_BUS, chipSelect,
++                CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
++    	
++    	if(flash[chipSelect] == NULL)
++    	{
++    		printf("\nspi_flash_probe failed on chipSelect = %d\n",chipSelect);
++    		continue;
++    	}
+ 
+-	flash = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
+-					CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
+-	if(flash == NULL)
+-	{
+-		puts("\nspi_flash_probe failed");
+-		hang();
+-	}
+-
+-
+-	flashsize = flash->size;
++	flashsize = flash[chipSelect]->size;
+ 	SectorSize = 0x10000;
+ 	SectorCount = flashsize/SectorSize;
+         memset(&platform_ver,0,sizeof(platform_ver));
+@@ -895,7 +880,7 @@
+         	        if( (i*SectorSize) >= CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE ) { break; }
+ 	            #endif
+ 			/* Check if FMH found at this sector */
+-			fmh = ScanforFMH(flash,(i*SectorSize),SectorSize);
++			fmh = ScanforFMH(flash[chipSelect],(i*SectorSize),SectorSize);
+ 			if (fmh == NULL)
+ 			{
+ 				i++;
+@@ -951,6 +936,8 @@
+ 				}
+ 			}
+ 		}
++    }
++		
+ 		
+         
+         /* check whether reboot caused by watchdog modules reset */
+@@ -1199,6 +1186,7 @@
+ 	char *side = NULL;
+ 	u8 golden_side;
+ 	struct spi_flash *flash;
++	struct spi_flash *flash_spi_info[2] = {NULL};
+ #ifdef CONFIG_YAFU_SUPPORT
+ 	int  boot_fwupd = 0;
+ #endif
+@@ -1264,13 +1252,38 @@
+ 		return 0;			/* Full Access to Uboot Console */
+ 	}
+ #ifndef CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+-	flash = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
+-                        CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
+-    	if (flash == NULL)
+-    	{
+-        	puts("\nspi_flash_probe failed");
+-        	hang();
+-    	}
++	if(CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS > 1)
++	{
++		int cs = 0;
++		for(cs=0; cs<CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS; cs++)
++		{
++			flash_spi_info[cs] = spi_flash_probe(CONFIG_ENV_SPI_BUS, cs,
++					CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
++			if(flash_spi_info[cs] == NULL)
++			{
++				printf("\nspi_flash_probe failed for cs %d\n",cs);
++				continue;
++			}
++		}
++		
++		flash = flash_spi_info[CONFIG_ENV_SPI_CS];
++		if(flash == NULL)
++		{
++			puts("\nspi_flash_probe failed");
++			hang();
++		}
++	}
++	else
++	{
++		flash = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
++				CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
++		
++		if(flash == NULL)
++		{
++			puts("\nspi_flash_probe failed");
++			hang();
++		}
++	}
+ #endif
+ 
+ #ifdef CONFIG_SPX_FEATURE_PLATGUARD_SUPPORT
+@@ -1328,15 +1341,28 @@
+ 	/* Scan through the flash for FMH */
+ 	for (i=StartingSector;i<SectorCount;)
+ 	{
++#if defined (CONFIG_SPX_FEATURE_SW_FAILSAFE_BOOT) && defined (CONFIG_SPX_FEATURE_CONTIGIOUS_SPI_MEMORY)
++		/* Check if FMH are flashed to next SPI after current SPI is occupied fully,
++		 * It found to happen with SW fail safe with contagious memory support where,
++		 * second image is partially flashed in SPI1 and partially in SPI2.
++		 */
++		if((i*SectorSize == flash->size) && mod->Module_Type != MODULE_FMH_FIRMWARE)
++		{
++			flash = flash_spi_info[CONFIG_ENV_SPI_CS+1];
++			startaddress=CE1_ADDRESS_SEGMENT;
++			i++;
++			continue;
++		}
++#endif
++		
+ 		/* Check if FMH found at this sector */
+ 		fmh = ScanforFMH(flash,((i*SectorSize)),SectorSize);
+-		//fmh = ScanforFMH((unsigned char *)(CONFIG_SYS_FLASH_BASE+(i*SectorSize)),SectorSize);
+ 		if (fmh == NULL)
+ 		{
+ 			i++;
+ 			continue;
+ 		}
+-
++		
+ 		/* Extract Module information and module name */
+ 		mod = &(fmh->Module_Info);
+ 	
+@@ -1489,14 +1515,67 @@
+ 			{
+ 				if ((fmh->FMH_Ver_Major == 1) && (fmh->FMH_Ver_Minor >= 8))
+ 				{
+-					printf("Copying Module of size 0x%x From 0x%lx to 0x%x\n",
++					//if the module is flashed completely in second SPIs.
++					if((i*SectorSize) > flash_spi_info[CONFIG_ENV_SPI_CS]->size)
++					{
++						mod->Module_Location = ((i*SectorSize) - flash_spi_info[CONFIG_ENV_SPI_CS]->size) + SectorSize;
++						
++						printf("Copying Module of size 0x%x From 0x%lx to 0x%x\n",
+ 								le32_to_host(mod->Module_Size),
+ 								startaddress+le32_to_host(mod->Module_Location),
+ 								le32_to_host(mod->Module_Load_Address));
+-					ret = spi_flash_read(flash, le32_to_host(mod->Module_Location), le32_to_host(mod->Module_Size), (void *)le32_to_host(mod->Module_Load_Address));
+-					if(ret)
++						
++						ret = spi_flash_read(flash, startaddress+le32_to_host(mod->Module_Location), le32_to_host(mod->Module_Size), (void *)le32_to_host(mod->Module_Load_Address));
++						if(ret)
++						{
++							puts("Error in reading SPI\n");
++						}
++					}
++					//if the module is flashed partially in two SPIs.
++					else if(((i*SectorSize) < flash_spi_info[CONFIG_ENV_SPI_CS]->size) && (((i*SectorSize) + le32_to_host(mod->Module_Size)) > flash_spi_info[CONFIG_ENV_SPI_CS]->size))
+ 					{
+-						puts("Error in reading SPI\n");
++						unsigned long spi1_size_read_root, spi2_size_read_root;
++						
++						printf("\n%s Module is flashed in both the SPIs partially.\n\n", mod->Module_Name);
++						
++						spi1_size_read_root = flash_spi_info[CONFIG_ENV_SPI_CS]->size - (startaddress+le32_to_host(mod->Module_Location));
++						spi2_size_read_root = le32_to_host(mod->Module_Size) - spi1_size_read_root;
++						
++						printf("Copying partial Module of size 0x%lx From 0x%lx to 0x%x\n",
++								spi1_size_read_root,
++								startaddress+le32_to_host(mod->Module_Location),
++								le32_to_host(mod->Module_Load_Address));
++						
++						ret = spi_flash_read(flash, startaddress+le32_to_host(mod->Module_Location), spi1_size_read_root, (void *)le32_to_host(mod->Module_Load_Address));
++						if(ret)
++						{
++							puts("Error in reading SPI\n");
++						}
++						
++						printf("Copying remaining partial Module of size 0x%lx From 0x%x to 0x%lx\n",
++								spi2_size_read_root,
++								0,
++								le32_to_host(mod->Module_Load_Address)+spi1_size_read_root);
++						
++						ret = spi_flash_read(flash_spi_info[CONFIG_ENV_SPI_CS+1], 0, spi2_size_read_root, (void *)le32_to_host(mod->Module_Load_Address) + spi1_size_read_root);
++						if(ret)
++						{
++							puts("Error in reading SPI\n");
++						}
++					}
++					//else module is flashed completely in first SPI.
++					else
++					{
++						printf("Copying Module of size 0x%x From 0x%lx to 0x%x\n",
++								le32_to_host(mod->Module_Size),
++								startaddress+le32_to_host(mod->Module_Location),
++								le32_to_host(mod->Module_Load_Address));
++						
++						ret = spi_flash_read(flash, startaddress + le32_to_host(mod->Module_Location), le32_to_host(mod->Module_Size), (void *)le32_to_host(mod->Module_Load_Address));
++						if(ret)
++						{
++							puts("Error in reading SPI\n");
++						}
+ 					}
+ 				}
+ 
+@@ -1547,7 +1626,50 @@
+ 				if (Compression == MODULE_COMPRESSION_NONE)
+ 				{
+ 					if ((fmh->FMH_Ver_Major == 1) && (fmh->FMH_Ver_Minor >= 8)){
+-						ExecuteAddr = startaddress + le32_to_host(mod->Module_Location);
++						ExecuteAddr = (i*SectorSize) +0x40;
++						
++#if defined CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
++						if(ExecuteAddr > flashspi[CONFIG_ENV_SPI_CS]->size)  //if module is flashed in second SPI.
++						{
++							ExecuteAddr = startaddress + (ExecuteAddr - flashspi[CONFIG_ENV_SPI_CS]->size);
++						}
++#else
++						if(ExecuteAddr > flash_spi_info[CONFIG_ENV_SPI_CS]->size)  //if module is flashed in second SPI.
++						{
++							ExecuteAddr = startaddress + (ExecuteAddr - flash_spi_info[CONFIG_ENV_SPI_CS]->size);
++						}
++#endif
++						//if module is flashed in two SPIs partially then read the osimage data and load into RAM to be accessed by u-boot.
++						else if(((ExecuteAddr) < flash_spi_info[CONFIG_ENV_SPI_CS]->size) && (((ExecuteAddr) + le32_to_host(mod->Module_Size)) > flash_spi_info[CONFIG_ENV_SPI_CS]->size))
++						{
++							printf("\n%s Module is flashed in both the SPIs partially.\n\n", mod->Module_Name);
++							
++							unsigned long spi1_size_read_osimage, spi2_size_read_osimage;
++							
++							spi1_size_read_osimage = flash_spi_info[CONFIG_ENV_SPI_CS]->size - (startaddress+le32_to_host(mod->Module_Location));
++							spi2_size_read_osimage =  le32_to_host(mod->Module_Size) - spi1_size_read_osimage;
++							
++							mod->Module_Load_Address = OS_LOAD_ADDRESS;
++							
++							ret = spi_flash_read(flash, startaddress+le32_to_host(mod->Module_Location), spi1_size_read_osimage, (void *)le32_to_host(mod->Module_Load_Address));
++							if(ret)
++							{
++								printf("Error in reading SPI1\n");
++							}
++							
++							ret = spi_flash_read(flash_spi_info[CONFIG_ENV_SPI_CS+1], 0, spi2_size_read_osimage, (void *)le32_to_host(mod->Module_Load_Address) + spi1_size_read_osimage);
++							if(ret)
++							{
++								printf("Error in reading SPI");
++							}
++							
++							ExecuteAddr = le32_to_host(mod->Module_Load_Address);	
++						}
++						else
++						{
++							//do nothing;
++						}
++						
+ #ifdef CONFIG_SPX_FEATURE_SECURE_BOOT_ENCRYPTION_SUPPORT						
+ 						len = le32_to_host(mod->Module_Size);
+ #endif						

@@ -1,0 +1,18 @@
+--- linux/arch/arm/boot/dts/aspeed-g6-pinctrl.dtsi	2021-03-11 11:43:58.127071542 +0800
++++ linux.new/arch/arm/boot/dts/aspeed-g6-pinctrl.dtsi	2021-03-12 17:36:18.460922961 +0800
+@@ -1122,6 +1122,15 @@
+ 		groups = "USBA";
+ 	};
+ 
++	pinctrl_usb2bh_default: usb2bh_default {
++		function = "USB2BH";
++		groups = "USBB";
++	};
++
++	pinctrl_usb2bd_default: usb2bd_default {
++		function = "USB2BD";
++		groups = "USBB";
++	};
+ 	pinctrl_vb_default: vb_default {
+ 		function = "VB";
+ 		groups = "VB";

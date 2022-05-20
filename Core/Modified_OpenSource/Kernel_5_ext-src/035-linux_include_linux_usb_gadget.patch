@@ -1,0 +1,25 @@
+--- linux/include/linux/usb/gadget.h	2020-12-21 07:27:07.000000000 -0500
++++ linux-new/include/linux/usb/gadget.h	2020-12-23 16:59:50.002342800 -0500
+@@ -322,6 +322,9 @@
+ 	struct usb_ep *(*match_ep)(struct usb_gadget *,
+ 			struct usb_endpoint_descriptor *,
+ 			struct usb_ss_ep_comp_descriptor *);
++	int (*udc_upstream_connect)(struct usb_gadget *gadget);
++	int (*udc_upstream_disconnect)(struct usb_gadget *gadget);
++
+ };
+ 
+ /**
+@@ -850,6 +853,12 @@
+ /* utility to tell udc core that the bus reset occurs */
+ extern void usb_gadget_udc_reset(struct usb_gadget *gadget,
+ 		struct usb_gadget_driver *driver);
++/*-------------------------------------------------------------------------*/
++
++/* utility to set vhub connect/disconnect */
++extern int usb_gadget_vhub_upstream_enalbe(struct usb_gadget *gadget);
++extern int usb_gadget_vhub_upstream_disable(struct usb_gadget *gadget);
++extern int usb_gadget_get_all_device_status(int *status);
+ 
+ /*-------------------------------------------------------------------------*/
+ 

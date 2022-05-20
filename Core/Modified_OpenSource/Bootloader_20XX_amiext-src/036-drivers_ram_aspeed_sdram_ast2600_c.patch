@@ -1,0 +1,39 @@
+--- uboot_old/drivers/ram/aspeed/sdram_ast2600.c	2021-07-13 10:37:27.095524498 +0800
++++ uboot/drivers/ram/aspeed/sdram_ast2600.c	2021-07-13 10:44:55.000000000 +0800
+@@ -804,6 +804,28 @@
+ {
+ 	struct ast2600_sdrammc_regs *regs = info->regs;
+ 	size_t hw_size;
++	size_t ram_size = SDRAM_MAX_SIZE;
++	u32 cap_param;
++
++	cap_param = (readl(&info->regs->config) & SDRAM_CONF_CAP_MASK) >> SDRAM_CONF_CAP_SHIFT;
++	switch (cap_param)
++	{
++	case SDRAM_CONF_CAP_2048M:
++		ram_size = 2048 * SDRAM_SIZE_1MB;
++		break;
++	case SDRAM_CONF_CAP_1024M:
++		ram_size = 1024 * SDRAM_SIZE_1MB;
++		break;
++	case SDRAM_CONF_CAP_512M:
++		ram_size = 512 * SDRAM_SIZE_1MB;
++		break;
++	case SDRAM_CONF_CAP_256M:
++		ram_size = 256 * SDRAM_SIZE_1MB;
++		break;
++	}
++
++	info->info.base = CONFIG_SYS_SDRAM_BASE;
++	info->info.size = ram_size - ast2600_sdrammc_get_vga_mem_size(info) - CONFIG_ASPEED_SSP_RERV_MEM;
+ 
+ 	if (0 == (readl(&regs->config) & SDRAM_CONF_ECC_SETUP))
+ 		return;
+@@ -870,7 +892,6 @@
+ 
+ 	if (readl(priv->scu + AST_SCU_HANDSHAKE) & SCU_SDRAM_INIT_READY_MASK) {
+ 		printf("already initialized, ");
+-		ast2600_sdrammc_calc_size(priv);
+ 		ast2600_sdrammc_update_size(priv);
+ 		return 0;
+ 	}

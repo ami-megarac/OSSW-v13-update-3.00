@@ -1,0 +1,61 @@
+--- linux_old/drivers/i2c/i2c-slave-ssif.c	2021-07-15 16:10:01.600033945 +0530
++++ linux/drivers/i2c/i2c-slave-ssif.c	2021-07-15 14:29:21.555429776 +0530
+@@ -42,49 +42,7 @@
+ 	int	len;
+ 	u8	*buf;
+ };
+-enum xfer_mode {
+-	BYTE_MODE = 0,
+-	BUFF_MODE,
+-	DMA_MODE,
+ 
+-};
+-
+-struct aspeed_new_i2c_bus {
+-	struct device		*dev;
+-	void __iomem		*reg_base;
+-	struct regmap		*global_reg;
+-	int 				irq;
+-	enum xfer_mode 		mode; //0: dma, 1: pool, 2:byte
+-	int					clk_div_mode;	//0: old mode, 1: new mode
+-	struct clk 			*clk;
+-	u32					apb_clk;
+-	u32					bus_frequency;
+-	u32					state;			//I2C xfer mode state matchine
+-	u32					bus_recover;
+-	struct i2c_adapter	adap;
+-	/* Multi-master */
+-	bool				multi_master;
+-	/* master structure */	
+-	int					cmd_err;
+-	struct completion	cmd_complete;
+-	struct i2c_msg 		*msgs;	//cur xfer msgs
+-	size_t				buf_index;	//buffer mode idx 	
+-	int					msgs_index;	//cur xfer msgs index
+-	int					msgs_count;	//total msgs
+-	dma_addr_t 			master_dma_addr;
+-	int					master_xfer_cnt;	//total xfer count
+-	/* Buffer mode */
+-	void __iomem		*buf_base;
+-	size_t				buf_size;
+-	/* Slave structure */
+-	int 				slave_xfer_len;
+-	int 				slave_xfer_cnt;
+-#ifdef CONFIG_I2C_SLAVE
+-	unsigned char		*slave_dma_buf;
+-	dma_addr_t			slave_dma_addr;
+-	struct i2c_client 	*slave;
+-#endif
+-};
+ 
+ static inline void
+ aspeed_i2c_write(struct aspeed_new_i2c_bus *i2c_bus, u32 val, u32 reg)
+@@ -129,7 +87,7 @@
+ 	struct mq_queue *mq = i2c_get_clientdata(client);
+ 	struct mq_msg *msg = mq->curr;
+ 	struct mq_msg *wr_msg = & mq->wr_queue;
+-	int ret = 0 , len = 0 ,cmd = 0;
++	int ret = 0 , cmd = 0;
+ 	struct aspeed_new_i2c_bus *i2c_bus = i2c_get_adapdata(client->adapter);
+ 
+ 	switch (event) {

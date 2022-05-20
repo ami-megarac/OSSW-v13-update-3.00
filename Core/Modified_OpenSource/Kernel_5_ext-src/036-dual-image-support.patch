@@ -1,0 +1,262 @@
+diff -Naur kernel_old/drivers/mtd/parsers/spx-fmh.c kernel_new/drivers/mtd/parsers/spx-fmh.c
+--- kernel_old/drivers/mtd/parsers/spx-fmh.c	2021-01-01 14:54:10.336058411 +0530
++++ kernel_new/drivers/mtd/parsers/spx-fmh.c	2021-01-01 14:50:54.274031373 +0530
+@@ -17,12 +17,16 @@
+ #include <linux/mtd/mtd.h>
+ #include <linux/mtd/map.h>
+ #include <linux/mtd/partitions.h>
+-
++#include <linux/mtd/concat.h>
+ #include "fmh.h"
++#include "../mtdcore.h"
+ 
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++unsigned char broken_spi_banks = 0;// specify the number of broken SPI flash bank
++#endif
+ 
+ 
+-#define MAX_BANKS CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS	     /* TODO: Not using now. Code to be added when we have a platform to test */
++//#define MAX_BANKS CONFIG_SPX_FEATURE_GLOBAL_FLASH_BANKS	     /* TODO: Not using now. Code to be added when we have a platform to test */
+ 
+ #if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+ #define IMAGE_1  "imagebooted=1"
+@@ -45,69 +49,80 @@
+ struct mtd_info *ractrends_mtd[MAX_BANKS];
+ EXPORT_SYMBOL(ractrends_mtd);
+ 
+-static int
++static
++int
+ GetFMHPartitions(struct mtd_info *mtd,unsigned long FlashStart, uint64_t FlashSize, uint32_t SectorSize,struct mtd_partition  *parts)
+ {
+-	FMH *fmh;
+-	MODULE_INFO *mod;
+-	unsigned short ModuleType;
+-
++	FMH *fmh=NULL;
++	MODULE_INFO *mod=NULL;
++	unsigned short ModuleType=0;
+ 	int PartCount=0;
+-	unsigned long sec;
++	unsigned long sec=0;
+ 	unsigned long startingsector=0,endingsector=0,startaddress=0;
+ 
++#if defined CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
++	unsigned long img2_offset=0;
++	int i=0;
++#endif
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
++	unsigned long startingsector_p=0,endingsector_p=0,startaddress_p=0;
++	int scan_flag=1;
++#endif
+ 	endingsector=(unsigned long)div_u64(FlashSize,SectorSize);
+ 
+ #if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+-	unsigned long startingsector_p=0,endingsector_p=0,startaddress_p=0, p_image = 1;
+ 
+ #if defined CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+-	unsigned long img2_offset=0;
+-	for(i=0;i<CONFIG_SPX_FEATURE_SECONDARY_IMAGE_SPI;i++){
++    for(i=0;i<CONFIG_SPX_FEATURE_SECONDARY_IMAGE_SPI;i++){
+ #ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
+-		if (broken_spi_banks == 1)
+-			img2_offset = (CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_START - CONFIG_SPX_FEATURE_GLOBAL_FLASH_START);
+-		else
+-#endif
+-		{
+-			img2_offset+=ractrends_mtd[i]->size;
+-		}
+-	}
++        if (broken_spi_banks == 1)
++        {
++            img2_offset = (CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_START - CONFIG_SPX_FEATURE_GLOBAL_FLASH_START);
++	}
++        else
++#endif
++        {
++            img2_offset+=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
++        }
++    }
+ 
+ #endif
+ 	if(strstr(boot_command_line,IMAGE_1)){
+-		endingsector=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
++    	endingsector=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
+ 
+ #if defined CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+-
+-		startingsector_p=(unsigned long)div_u64(img2_offset,SectorSize);
+-		endingsector_p=(unsigned long)div_u64(img2_offset+CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
+-		startaddress_p=img2_offset;
++        startingsector_p=(unsigned long)div_u64(img2_offset,SectorSize);
++        endingsector_p=(unsigned long)div_u64(img2_offset+CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
++        startaddress_p=img2_offset;
+ #else
+-		startingsector_p=endingsector;
+-		endingsector_p=2*endingsector;
+-		startaddress_p=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
++	startingsector_p=endingsector;
++	endingsector_p=2*endingsector;
++	startaddress_p=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
++
+ #endif  
+ 	}
+ 	else if(strstr(boot_command_line,IMAGE_2)){
+ #if defined CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK
+-		startingsector=(unsigned long)div_u64(img2_offset,SectorSize);
+-		endingsector=(unsigned long)div_u64(img2_offset+CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
+-		startaddress=img2_offset;
+-		endingsector_p=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
++        startingsector=(unsigned long)div_u64(img2_offset,SectorSize);
++        endingsector=(unsigned long)div_u64(img2_offset+CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
++        startaddress=img2_offset;
++        endingsector_p=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
+ #else
+-		startingsector=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
+-		endingsector=2*startingsector;
+-		startaddress=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
+-		endingsector_p=startingsector;
++	startingsector=(unsigned long)div_u64(CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE,SectorSize);
++	endingsector=2*startingsector;
++	startaddress=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
++	endingsector_p=startingsector;
+ #endif  
+-	}
++    }
+ #else
+ 	//address computation for single image
+ 	endingsector=(unsigned long)div_u64(FlashSize,SectorSize);
+-#endif
++#endif	
+ 
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+ START_SCAN:
++#endif
++
+ 	for (sec=startingsector;sec<endingsector;)
+ 	{
+ 		fmh = ScanforFMH((unsigned char *)(FlashStart+(sec*SectorSize)),(unsigned long)SectorSize,mtd);
+@@ -121,9 +136,9 @@
+ 		/* Check if module type is JFFS or JFFS2 */
+ 		ModuleType = le16_to_host(mod->Module_Type);
+ 		if ((ModuleType != MODULE_JFFS) && (ModuleType != MODULE_JFFS2) && 
+-				(ModuleType != MODULE_INITRD_CRAMFS) && (ModuleType != MODULE_CRAMFS)  && 
+-				(ModuleType != MODULE_SQUASHFS) && (ModuleType != MODULE_INITRD_SQUASHFS) &&
+-				(ModuleType != MODULE_CACHE))
++			(ModuleType != MODULE_INITRD_CRAMFS) && (ModuleType != MODULE_CRAMFS)  &&
++			(ModuleType != MODULE_SQUASHFS) && (ModuleType != MODULE_INITRD_SQUASHFS) &&
++		    (ModuleType != MODULE_CACHE))
+ 		{
+ 			if ((sec*SectorSize) > le32_to_host(mod->Module_Location))		/* AltFMH */
+ 				sec++;
+@@ -134,14 +149,16 @@
+ 
+ 		/* Fill the parition information */
+ 		parts[PartCount].name = kstrndup(mod->Module_Name,16, GFP_KERNEL);
+-		if (!parts[PartCount].name)
+-			return 0;
++ 		if (!parts[PartCount].name)
++        	return 0;
++
+ 		parts[PartCount].mask_flags = 0;
+-		parts[PartCount].types=0;
+-		parts[PartCount].of_node = 0;
++    		parts[PartCount].types=0;
++    		parts[PartCount].of_node = 0;
+ 		parts[PartCount].size = le32_to_host(mod->Module_Size);
+ 
+-		if ((fmh->FMH_Ver_Major == 1) && (fmh->FMH_Ver_Minor >= 8)){
++		if ((fmh->FMH_Ver_Major == 1) && (fmh->FMH_Ver_Minor >= 8))
++		{
+ 			parts[PartCount].offset = startaddress+le32_to_host(mod->Module_Location);
+ 		}
+ 		else
+@@ -150,7 +167,7 @@
+ 		}
+ 
+ 		printk("MTD Partition %d : %s @ 0x%lx of Size 0x%lx\n",PartCount,parts[PartCount].name,
+-				(unsigned long)parts[PartCount].offset,(unsigned long)parts[PartCount].size);
++								(unsigned long)parts[PartCount].offset,(unsigned long)parts[PartCount].size);
+ 
+ 
+ 		if ((sec*SectorSize) > le32_to_host(mod->Module_Location))   /* AltFMH */
+@@ -160,15 +177,18 @@
+ 		PartCount++;
+ 	}
+ #if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+-	//Active image mtd partitions are scanned successfully, now start scanning passive image mtd partitions.
+-	if( 1 == p_image)
+-	{
+-		startingsector = startingsector_p;
+-		endingsector = endingsector_p;
+-		startaddress = startaddress_p;
+-		p_image = 0;
+-		goto START_SCAN;
+-	}
++		if(scan_flag== 1){
++			scan_flag=2;
++			startingsector=startingsector_p;
++			endingsector=endingsector_p;
++			startaddress=startaddress_p;
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++			if (broken_spi_banks == 0)
++#endif
++			{
++				goto START_SCAN;// NOW START SCANNING FOR INACTIVE IMAGE
++			}
++		}
+ #endif
+ 
+ 	return  PartCount;
+@@ -181,31 +201,20 @@
+ {
+ 
+ 	#define MAX_PARTS 16		/* Paritions Per Bank */
+-
+ 	struct mtd_partition tmp_parts[MAX_PARTS];
+-	struct mtd_partition *parts;
+-	int PartCount;
+-	int bank,flashstart=0;
++	struct mtd_partition *parts=NULL;
++	int PartCount=0;
++	int flashstart=0;
+ 
+-	/* Initialize all on first call */
+-	if (totalbanks == 0)
+-	{
+- 		for (bank = 0; bank < MAX_BANKS; bank++)
+-        	ractrends_mtd[bank] = 0;
+-	}
+ 	ractrends_mtd[totalbanks++]=mtd;
+ 
+-#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+-	if(strstr(boot_command_line,IMAGE_2)){
+-		flashstart=CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE;
+-	}
+-#endif
+ 	PartCount = GetFMHPartitions(mtd,flashstart,mtd->size,mtd->erasesize,tmp_parts);
++
+ 	if (!PartCount)
+ 		return -ENOMEM;
+-
++	
+ 	/* Allocate memory and copy information */
+-    parts = kzalloc(PartCount * sizeof(struct mtd_partition), GFP_KERNEL);
++    	parts = kzalloc(PartCount * sizeof(struct mtd_partition), GFP_KERNEL);
+ 	if (!parts)
+ 		return -ENOMEM;
+ 	memcpy(parts,tmp_parts,PartCount*sizeof(struct mtd_partition));
+@@ -232,7 +241,12 @@
+ };
+ module_mtd_part_parser(fmh_parser);
+ 
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++EXPORT_SYMBOL(broken_spi_banks) ;
++#endif
++#define DRV_MODULE_VERSION      "1.0.0"
++
+ MODULE_AUTHOR("American Megatrends International");
+ MODULE_DESCRIPTION("SPX FMH partition parser");
+ MODULE_LICENSE("GPL");
+-
++MODULE_VERSION(DRV_MODULE_VERSION);

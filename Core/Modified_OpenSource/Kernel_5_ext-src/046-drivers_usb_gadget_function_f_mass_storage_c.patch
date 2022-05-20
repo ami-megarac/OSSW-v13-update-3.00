@@ -1,0 +1,65 @@
+--- linux/drivers/usb/gadget/function/f_mass_storage.c	2021-03-08 15:56:32.639757011 +0800
++++ linux-new/drivers/usb/gadget/function/f_mass_storage.c	2021-03-08 17:02:16.896108651 +0800
+@@ -3210,8 +3210,6 @@
+ 	AMI_GADGET_PRIV *pAMI_gadget_priv = NULL;
+ 	AMI_GADGET_EVENT_STATUS_PRIV *pAMI_media_event_status_priv;
+ 	
+-	struct fsg_lun  *unloadlun = NULL;
+-
+ 	if (NULL == fsg)
+ 	{
+ 		printk("CRIT!!!, invalid fsg");
+@@ -3254,8 +3252,6 @@
+ 		return -1;
+ 	}
+ 
+-	unloadlun =  common->luns[instance];
+-
+ 	// Update the media event status for each lun of cd.
+ 	pAMI_media_event_status_priv = &pAMI_gadget_priv->media_event_status;
+ 	
+@@ -3265,8 +3261,6 @@
+ 	
+ 	pAMI_media_event_status_priv->additional_media_eject = MEDIA_EVENT_ID_EJECT_REQUEST;	// For CD eject event with Windows Host.
+ 
+-	fsg_lun_close(unloadlun);
+-	
+ 	return 0; // all right.
+ }
+ 
+@@ -3330,8 +3324,6 @@
+ 	AMI_GADGET_PRIV *pAMI_gadget_priv = NULL;
+ 	AMI_GADGET_EVENT_STATUS_PRIV *pAMI_media_event_status_priv;
+ 
+-	struct fsg_lun  *unloadlun = NULL;
+-	
+ 	if (NULL == fsg)
+ 	{
+ 		printk("CRIT!!!, invalid fsg");
+@@ -3374,8 +3366,6 @@
+ 		return -1;
+ 	}
+ 
+-	unloadlun =  common->luns[instance];
+-
+ 	// Update the media event status for each lun of hd.
+ 	pAMI_media_event_status_priv = &pAMI_gadget_priv->media_event_status;
+ 	
+@@ -3385,8 +3375,6 @@
+ 	
+ 	pAMI_media_event_status_priv->additional_media_eject = MEDIA_EVENT_ID_EJECT_REQUEST;
+ 
+-	fsg_lun_close(unloadlun);
+-	
+ 	return 0; // all right.
+ }
+ 
+@@ -3499,7 +3487,7 @@
+ 			// Mind the sem...
+ 			// down_read(&common->filesem);
+ 			// down_write(&common->filesem);
+-//			fsg_lun_close(unloadlun); // close the lun causes the status of eject with SCSI command: 0x03(REQUEST SENSE), and it helps to notify the host that the disk is no longer available.
++			fsg_lun_close(unloadlun); // close the lun causes the status of eject with SCSI command: 0x03(REQUEST SENSE), and it helps to notify the host that the disk is no longer available.
+ 			// up_write(&common->filesem);
+ 			// up_read(&common->filesem);
+ 			pAMI_media_event_status_priv->additional_media_eject = MEDIA_EVENT_ID_NO_EVENT;

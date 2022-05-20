@@ -1,0 +1,219 @@
+--- linux.old/drivers/clk/clk-ast2600.c	2021-08-19 13:35:00.625020096 -0400
++++ linux/drivers/clk/clk-ast2600.c	2021-08-19 13:08:02.774207971 -0400
+@@ -171,6 +171,18 @@
+ 	{ 0 }
+ };
+ 
++static const struct clk_div_table ast2600_sd_div_a2_table[] = {
++	{ 0x0, 2 },
++	{ 0x1, 4 },
++	{ 0x2, 6 },
++	{ 0x3, 8 },
++	{ 0x4, 10 },
++	{ 0x5, 12 },
++	{ 0x6, 14 },
++	{ 0x7, 1 },
++	{ 0 }
++};
++
+ /* For hpll/dpll/epll/mpll */
+ static struct clk_hw *ast2600_calc_pll(const char *name, u32 val)
+ {
+@@ -526,18 +538,34 @@
+ 		return PTR_ERR(hw);
+ 	aspeed_g6_clk_data->hws[ASPEED_CLK_EMMC] = hw;
+ 
++	clk_hw_register_fixed_rate(NULL, "hclk", NULL, 0, 200000000);
++
+ 	/* SD/SDIO clock divider and gate */
+ 	hw = clk_hw_register_gate(dev, "sd_extclk_gate", "hpll", 0,
+ 			scu_g6_base + ASPEED_G6_CLK_SELECTION4, 31, 0,
+ 			&aspeed_g6_clk_lock);
+ 	if (IS_ERR(hw))
+ 		return PTR_ERR(hw);
++
++	regmap_read(map, 0x14, &val);
++	if (((val & GENMASK(23, 16)) >> 16) >= 2) {
++		/* A2 clock divisor is different from A1/A0 */
+ 	hw = clk_hw_register_divider_table(dev, "sd_extclk", "sd_extclk_gate",
+ 			0, scu_g6_base + ASPEED_G6_CLK_SELECTION4, 28, 3, 0,
+-			ast2600_div_table,
++			ast2600_sd_div_a2_table,
+ 			&aspeed_g6_clk_lock);
+ 	if (IS_ERR(hw))
+ 		return PTR_ERR(hw);
++	}
++	else
++	{
++		hw = clk_hw_register_divider_table(dev, "sd_extclk", "sd_extclk_gate",
++					0, scu_g6_base + ASPEED_G6_CLK_SELECTION4, 28, 3, 0,
++					ast2600_div_table,
++					&aspeed_g6_clk_lock);
++		if (IS_ERR(hw))
++			return PTR_ERR(hw);
++	}
+ 	aspeed_g6_clk_data->hws[ASPEED_CLK_SDIO] = hw;
+ 
+ 	/* MAC1/2 RMII 50MHz RCLK */
+--- linux.old/drivers/mmc/host/sdhci-of-aspeed.c	2021-08-19 13:34:55.952926086 -0400
++++ linux/drivers/mmc/host/sdhci-of-aspeed.c	2021-08-19 13:10:47.102021475 -0400
+@@ -13,6 +13,7 @@
+ #include <linux/of_gpio.h>
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
++#include <linux/reset.h>
+ #include <linux/spinlock.h>
+ 
+ #include "sdhci-pltfm.h"
+@@ -23,9 +24,16 @@
+ 
+ #define TIMING_PHASE_OFFSET 0xF4
+ 
++#define PROBE_AFTER_ASSET_DEASSERT 0x1
++
++struct aspeed_sdc_info {
++	uint32_t flag;
++};
++
+ struct aspeed_sdc {
+ 	struct clk *clk;
+ 	struct resource *res;
++	struct reset_control *rst;
+ 
+ 	spinlock_t lock;
+ 	void __iomem *regs;
+@@ -38,6 +46,10 @@
+ 	int	pwr_sw_pin;
+ };
+ 
++struct aspeed_sdc_info ast2600_sdc_info = {
++	.flag = PROBE_AFTER_ASSET_DEASSERT
++};
++
+ static void aspeed_sdc_configure_8bit_mode(struct aspeed_sdc *sdc,
+ 					   struct aspeed_sdhci *sdhci,
+ 					   bool bus8)
+@@ -174,7 +186,10 @@
+                     if(gpio_is_valid(dev->pwr_sw_pin))
+                             gpio_set_value(dev->pwr_sw_pin, 0);
+             } else
+-                    printk("todo fail check ~~ \n");
++	    	{
++			dev_err(&host->mmc->class_dev, "todo fail check ~~\n");
++		}
++                   // printk("todo fail check ~~ \n");
+ 
+             sdhci_writeb(host, pwr, SDHCI_POWER_CONTROL);
+     }
+@@ -283,7 +298,8 @@
+ 		if (gpio_is_valid(dev->pwr_pin)) {
+ 			if (devm_gpio_request(&pdev->dev, dev->pwr_pin,
+ 								  "mmc_pwr")) {
+-				printk("devm_gpio_request pwr fail \n");
++			//	printk("devm_gpio_request pwr fail \n");
++				dev_err(&pdev->dev, "devm_gpio_request pwr fail\n");
+ 			}
+ 			gpio_direction_output(dev->pwr_pin, 1);
+ 		}
+@@ -295,7 +311,8 @@
+ 		if (gpio_is_valid(dev->pwr_sw_pin)) {
+ 			if (devm_gpio_request(&pdev->dev, dev->pwr_sw_pin,
+ 							  "mmc_pwr_sw")) {
+-				printk("devm_gpio_request pwr sw fail \n");
++		//		printk("devm_gpio_request pwr sw fail \n");
++				dev_err(&pdev->dev, "devm_gpio_request pwr sw fail\n");
+ 			}
+ 			gpio_direction_output(dev->pwr_sw_pin, 1);
+ 		}
+@@ -348,11 +365,22 @@
+ 	.remove		= aspeed_sdhci_remove,
+ };
+ 
++static const struct of_device_id aspeed_sdc_of_match[] = {
++	{ .compatible = "aspeed,ast2400-sd-controller", },
++	{ .compatible = "aspeed,ast2500-sd-controller", },
++	{ .compatible = "aspeed,ast2600-sd-controller", .data = &ast2600_sdc_info},
++	{ }
++};
++
++MODULE_DEVICE_TABLE(of, aspeed_sdc_of_match);
++
+ static int aspeed_sdc_probe(struct platform_device *pdev)
+ 
+ {
+ 	struct device_node *parent, *child;
+ 	struct aspeed_sdc *sdc;
++	const struct of_device_id *match = NULL;
++	const struct aspeed_sdc_info *info = NULL;
+ 	int ret;
+ 	u32 timing_phase;
+ 
+@@ -362,6 +390,23 @@
+ 
+ 	spin_lock_init(&sdc->lock);
+ 
++	match = of_match_device(aspeed_sdc_of_match, &pdev->dev);
++	if (!match)
++		return -ENODEV;
++
++	if (match->data)
++		info = match->data;
++
++	if (info) {
++		if (info->flag & PROBE_AFTER_ASSET_DEASSERT) {
++			sdc->rst = devm_reset_control_get(&pdev->dev, NULL);
++			if (!IS_ERR(sdc->rst)) {
++				reset_control_assert(sdc->rst);
++				reset_control_deassert(sdc->rst);
++			}
++		}
++	}
++
+ 	sdc->clk = devm_clk_get(&pdev->dev, NULL);
+ 	if (IS_ERR(sdc->clk))
+ 		return PTR_ERR(sdc->clk);
+@@ -412,7 +457,7 @@
+ 
+ 	return 0;
+ }
+-
++/*
+ static const struct of_device_id aspeed_sdc_of_match[] = {
+ 	{ .compatible = "aspeed,ast2400-sd-controller", },
+ 	{ .compatible = "aspeed,ast2500-sd-controller", },
+@@ -421,6 +466,7 @@
+ };
+ 
+ MODULE_DEVICE_TABLE(of, aspeed_sdc_of_match);
++*/
+ 
+ static struct platform_driver aspeed_sdc_driver = {
+ 	.driver		= {
+--- linux.old/arch/arm/boot/dts/aspeed-ast2600-evb.dts	2021-08-19 13:35:07.257153754 -0400
++++ linux/arch/arm/boot/dts/aspeed-ast2600-evb.dts	2021-08-19 13:12:00.283734028 -0400
+@@ -75,6 +75,11 @@
+ 	status = "okay";
+ };
+ 
++&emmc_controller {
++	status = "okay";
++	timing-phase = <0x300FF>;
++};
++
+ &rtc {
+ 	status = "okay";
+ };
+--- linux.old/arch/arm/boot/dts/aspeed-g6-pinctrl.dtsi	2021-08-19 13:35:07.401156660 -0400
++++ linux/arch/arm/boot/dts/aspeed-g6-pinctrl.dtsi	2021-08-19 13:12:46.492819162 -0400
+@@ -872,6 +872,11 @@
+ 		groups = "EMMCG4";
+ 	};
+ 
++	pinctrl_emmcg8_default: emmcg8_default {
++		function = "EMMC";
++		groups = "EMMCG8";
++	};
++
+ 	pinctrl_sgpm1_default: sgpm1_default {
+ 		function = "SGPM1";
+ 		groups = "SGPM1";

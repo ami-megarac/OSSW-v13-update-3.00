@@ -1,0 +1,28 @@
+--- linux/drivers/i2c/busses/i2c-new-aspeed.c	2021-05-03 14:52:31.030231742 +0800
++++ linux_n/drivers/i2c/busses/i2c-new-aspeed.c	2021-05-03 14:52:29.142250020 +0800
+@@ -504,12 +504,13 @@
+ 	u32 ctrl, state;
+ 	int r;
+ 	int ret = 0;
+-
++    short slv_en = 0;
+ 	dev_dbg(i2c_bus->dev, "%d-bus aspeed_new_i2c_recover_bus [%x] \n", i2c_bus->adap.nr,
+ 		aspeed_i2c_read(i2c_bus, AST_I2CC_STS_AND_BUFF));
+ 
+ 	ctrl = aspeed_i2c_read(i2c_bus, AST_I2CC_FUN_CTRL);
+-
++	if(ctrl & AST_I2CC_SLAVE_EN)
++		slv_en = 1;
+ 	aspeed_i2c_write(i2c_bus, ctrl & ~(AST_I2CC_MASTER_EN | AST_I2CC_SLAVE_EN),
+ 				AST_I2CC_FUN_CTRL);
+ 
+@@ -540,6 +541,9 @@
+ 		dev_dbg(i2c_bus->dev, "can't recovery this situation\n");
+ 		ret = -EPROTO;
+ 	}
++	if(slv_en)
++		aspeed_i2c_write(i2c_bus, aspeed_i2c_read(i2c_bus, AST_I2CC_FUN_CTRL) | AST_I2CC_SLAVE_EN,
++				AST_I2CC_FUN_CTRL);
+ 	dev_dbg(i2c_bus->dev, "Recovery done [%x]\n", aspeed_i2c_read(i2c_bus, AST_I2CC_STS_AND_BUFF));
+ 
+ 	return ret;

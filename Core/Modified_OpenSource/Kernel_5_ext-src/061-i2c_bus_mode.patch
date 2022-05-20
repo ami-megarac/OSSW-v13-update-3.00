@@ -1,0 +1,160 @@
+diff -ruNa linux/drivers/i2c/busses/i2c-new-aspeed.c linux_n/drivers/i2c/busses/i2c-new-aspeed.c
+--- linux/drivers/i2c/busses/i2c-new-aspeed.c	2021-03-18 13:27:11.916908000 +0800
++++ linux_n/drivers/i2c/busses/i2c-new-aspeed.c	2021-03-18 14:58:46.926318000 +0800
+@@ -1450,8 +1450,8 @@
+ 	const struct of_device_id *match;
+ 	struct aspeed_new_i2c_bus *i2c_bus;
+ 	u32 global_ctrl;
+-	int ret = 0;
+-
++	int ret = 0, bus = 0;
++	struct resource *res;
+ 	i2c_bus = devm_kzalloc(&pdev->dev, sizeof(struct aspeed_new_i2c_bus), GFP_KERNEL);
+ 	if (!i2c_bus) {
+ 		return -ENOMEM;
+@@ -1476,8 +1476,38 @@
+ 		dev_err(&pdev->dev, "Expect I2CG0C[2] = 1 (new reg mode)\n");
+ 		goto free_mem;
+ 	}
+-
+-	i2c_bus->mode = DMA_MODE;
++	ret = of_property_read_u32(pdev->dev.of_node, "bus-mode", &bus);
++	if(ret < 0)
++	{
++		printk("there is no bus-mode property. use bye-mode as default.");
++		bus = 0;
++	}
++
++	switch(bus)
++	{
++		case 1://Buff mode
++			res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++			if (res && resource_size(res) >= 2)
++				i2c_bus->buf_base = devm_ioremap_resource(&pdev->dev, res);
++
++			if (!IS_ERR_OR_NULL(i2c_bus->buf_base))
++			{
++				i2c_bus->buf_size = resource_size(res);
++			}
++			i2c_bus->mode = BUFF_MODE;
++
++		break;
++		case 2://DMA mode
++			i2c_bus->mode = DMA_MODE;
++
++		break;
++		case 0://byte mode
++		default:
++			i2c_bus->mode = BYTE_MODE;
++
++		break;
++	}
++	/*i2c_bus->mode = DMA_MODE;
+ 
+ 	if (of_property_read_bool(pdev->dev.of_node, "byte-mode"))
+ 		i2c_bus->mode = BYTE_MODE;
+@@ -1492,7 +1522,7 @@
+ 			i2c_bus->buf_size = resource_size(res);
+ 		}
+ 		i2c_bus->mode = BUFF_MODE;
+-	}
++	}*/
+ 
+ 	i2c_bus->dev = &pdev->dev;
+ 	init_completion(&i2c_bus->cmd_complete);
+diff -ruNa linux/include/dt-bindings/i2c/i2c.h linux_n/include/dt-bindings/i2c/i2c.h
+--- linux/include/dt-bindings/i2c/i2c.h	2020-01-12 19:21:53.000000000 +0800
++++ linux_n/include/dt-bindings/i2c/i2c.h	2021-03-18 14:58:38.718400000 +0800
+@@ -7,11 +7,90 @@
+  *
+  * Wolfram Sang <wsa@sang-engineering.com>
+  */
+-
++#include "../../../../../include/projdef.h"
+ #ifndef _DT_BINDINGS_I2C_I2C_H
+ #define _DT_BINDINGS_I2C_I2C_H
+ 
+ #define I2C_TEN_BIT_ADDRESS	(1 << 31)
+ #define I2C_OWN_SLAVE_ADDRESS	(1 << 30)
+-
++#ifdef CONFIG_SPX_FEATURE_I2C0_DMA_MODE
++	#define I2C_BUS0_MODE 2
++#else
++	#define I2C_BUS0_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C1_DMA_MODE
++	#define I2C_BUS1_MODE 2
++#else
++	#define I2C_BUS1_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C2_DMA_MODE
++	#define I2C_BUS2_MODE 2
++#else
++	#define I2C_BUS2_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C3_DMA_MODE
++	#define I2C_BUS3_MODE 2
++#else
++	#define I2C_BUS3_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C4_DMA_MODE
++	#define I2C_BUS4_MODE 2
++#else
++	#define I2C_BUS4_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C5_DMA_MODE
++	#define I2C_BUS5_MODE 2
++#else
++	#define I2C_BUS5_MODE 0
++#endif    
++#ifdef CONFIG_SPX_FEATURE_I2C6_DMA_MODE
++	#define I2C_BUS6_MODE 2
++#else
++	#define I2C_BUS6_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C7_DMA_MODE
++	#define I2C_BUS7_MODE 2
++#else
++	#define I2C_BUS7_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C8_DMA_MODE
++	#define I2C_BUS8_MODE 2
++#else
++	#define I2C_BUS8_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C9_DMA_MODE
++	#define I2C_BUS9_MODE 2
++#else
++	#define I2C_BUS9_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C10_DMA_MODE
++	#define I2C_BUS10_MODE 2
++#else
++	#define I2C_BUS10_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C11_DMA_MODE
++	#define I2C_BUS11_MODE 2
++#else
++	#define I2C_BUS11_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C12_DMA_MODE
++	#define I2C_BUS12_MODE 2
++#else
++	#define I2C_BUS12_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C13_DMA_MODE
++	#define I2C_BUS13_MODE 2
++#else
++	#define I2C_BUS13_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C14_DMA_MODE
++	#define I2C_BUS14_MODE 2
++#else
++	#define I2C_BUS14_MODE 0
++#endif
++#ifdef CONFIG_SPX_FEATURE_I2C15_DMA_MODE
++	#define I2C_BUS15_MODE 2
++#else
++	#define I2C_BUS15_MODE 0
++#endif
+ #endif

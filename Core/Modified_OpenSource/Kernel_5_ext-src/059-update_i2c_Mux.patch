@@ -1,0 +1,25 @@
+diff -ruNa linux/drivers/i2c/muxes/i2c-mux-pca954x.c linux_n/drivers/i2c/muxes/i2c-mux-pca954x.c
+--- linux/drivers/i2c/muxes/i2c-mux-pca954x.c	2020-01-12 19:21:53.000000000 +0800
++++ linux_n/drivers/i2c/muxes/i2c-mux-pca954x.c	2021-02-09 11:29:53.147976000 +0800
+@@ -223,7 +223,6 @@
+ 			     struct i2c_client *client, u8 val)
+ {
+ 	union i2c_smbus_data dummy;
+-
+ 	return __i2c_smbus_xfer(adap, client->addr, client->flags,
+ 				I2C_SMBUS_WRITE, val,
+ 				I2C_SMBUS_BYTE, &dummy);
+@@ -244,7 +243,12 @@
+ 		regval = 1 << chan;
+ 
+ 	/* Only select the channel if its different from the last channel */
+-	if (data->last_chan != regval) {
++	if ((data->last_chan != regval) ) 
++{
++		if(regval == 0)//don't close all of channels, it will cause mctp failed
++		{
++			regval = data->last_chan;
++		}
+ 		ret = pca954x_reg_write(muxc->parent, client, regval);
+ 		data->last_chan = ret < 0 ? 0 : regval;
+ 	}

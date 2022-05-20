@@ -1,0 +1,12 @@
+--- linux/drivers/usb/host/uhci-platform.c	2020-12-21 20:27:07.000000000 +0800
++++ linux.new/drivers/usb/host/uhci-platform.c	2021-03-15 11:24:49.231309236 +0800
+@@ -113,7 +113,8 @@
+ 				num_ports);
+ 		}
+ 		if (of_device_is_compatible(np, "aspeed,ast2400-uhci") ||
+-		    of_device_is_compatible(np, "aspeed,ast2500-uhci")) {
++		    of_device_is_compatible(np, "aspeed,ast2500-uhci") ||
++		    of_device_is_compatible(np, "aspeed,ast2600-uhci")) {
+ 			uhci->is_aspeed = 1;
+ 			dev_info(&pdev->dev,
+ 				 "Enabled Aspeed implementation workarounds\n");

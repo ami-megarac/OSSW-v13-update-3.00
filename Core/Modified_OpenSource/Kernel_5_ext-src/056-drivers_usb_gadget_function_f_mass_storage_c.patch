@@ -1,0 +1,14 @@
+--- linux/drivers/usb/gadget/function/f_mass_storage.c	2021-03-02 17:39:25.019838000 +0800
++++ linux_new/drivers/usb/gadget/function/f_mass_storage.c	2021-03-02 18:24:43.497359000 +0800
+@@ -4097,7 +4097,10 @@
+ 
+ 	opts = fsg_opts_from_func_inst(fi);
+ #if (1 == ENABLE_MASS_STORAGE_NODE)
+-	gmsg_put_minor(opts->minor);
++	if (0 <= opts->minor)
++	{
++		gmsg_put_minor(opts->minor);
++	}
+ #endif // end #if (1 == ENABLE_MASS_STORAGE_NODE)
+ 	fsg_common_release(opts->common);
+ 	kfree(opts);

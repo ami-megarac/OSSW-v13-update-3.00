@@ -1,0 +1,601 @@
+diff -Naur linux_org/net/ncsi/ethtool.c linux/net/ncsi/ethtool.c
+--- linux_org/net/ncsi/ethtool.c	2021-08-09 18:03:05.382175000 +0800
++++ linux/net/ncsi/ethtool.c	2021-08-04 11:36:03.196541000 +0800
+@@ -44,6 +44,42 @@
+ #define MAX_IF_NAME_LEN 8
+ #define MAX_NET_IF 	(CONFIG_SPX_FEATURE_GLOBAL_NIC_COUNT)
+ 
++/* Link Partner values valid SerDes=0 AutoNegFlag=1 and AutoNegComplete=1 */
++
++#define LINK_STATUS_UP			0x00000001
++#define LINK_AUTO_NEG_FLAG		0x00000020
++#define LINK_AUTO_NEG_COMPLETE	0x00000040
++#define LINK_PARALLEL_DET_FLAG	0x00000080
++#define LINK_PARTNER_1000TFD	0x00000200
++#define LINK_PARTNER_1000THD	0x00000400
++#define LINK_PARTNER_100T4		0x00000800
++#define LINK_PARTNER_100TXFD	0x00001000
++#define LINK_PARTNER_100TXHD	0x00002000
++#define LINK_PARTNER_10TFD		0x00004000
++#define LINK_PARTNER_10THD		0x00008000
++#define LINK_TX_FLOW_FLAG		0x00010000
++#define LINK_RX_FLOW_FLAG		0x00020000
++#define LINK_SERDES				0x00100000
++#define LINK_OEM_FIELD_VALID	0x00200000
++
++#define LINK_PARTNER_FLOW_MASK	0x000C0000
++#define LINK_PARTNER_NO_PAUSE	0x00000000
++#define LINK_PARTNER_SYM_PAUSE	0x00040000
++#define LINK_PARTNER_ASYM_PAUSE	0x00080000
++#define LINK_PARTNER_BOTH_PAUSE	0x000C0000
++
++#define LINK_SPEED_DUPLEX_MASK	0x0000001E
++#define LINK_10THD			(0x1 << 1)			
++#define LINK_10TFD			(0x2 << 1)			
++#define LINK_100THD			(0x3 << 1)			
++#define LINK_100T4			(0x4 << 1)			
++#define LINK_100TFD			(0x5 << 1)			
++#define LINK_1000THD			(0x6 << 1)			
++#define LINK_1000TFD		(0x7 << 1)			
++#define LINK_10GT			(0x8 << 1)
++#define LINK_25GT			(0xa << 1)
++
++
+ /* 
+    The folllowing two should be defined in the network driver. 
+    If not defined, NCSI driver will not load 
+@@ -314,186 +350,135 @@
+ static int 
+ ncsi_ethtool_get_link_ksettings(struct net_device *netdev, struct ethtool_link_ksettings *cmd)
+ {
+-#if 0
+ 	struct ncsi_dev *nd;
+ 	struct ncsi_dev_priv *ndp;
+ 	struct ncsi_package *np;
++	struct ncsi_channel *nc;
++	struct ethtool_cmd ecmd;
++	u32 LinkStatus = 0;
+ 	
+ 	/* Find the NCSI device */
+-	nd = ncsi_find_dev(dev);
++	nd = ncsi_find_dev(netdev);
+ 	if (!nd) {
+-		netdev_warn(dev, "NCSI: No net_device?\n");
++		netdev_warn(netdev, "NCSI: No net_device?\n");
+ 		return 0;
+ 	}
+     
++	if(!nd->link_up)
++		return 0; //Not link-up
++	
+ 	ndp = nd ? TO_NCSI_DEV_PRIV(nd) : NULL;
+ 	if (!ndp)
+ 		return -ENODEV;	
+ 	
+-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported, info->ecmd.supported);
+-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising, info->ecmd.advertising);
+-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.lp_advertising, info->ecmd.lp_advertising);
+-
+-	cmd->base.speed 		= ethtool_cmd_speed(&(info->ecmd));
+-	cmd->base.duplex 		= info->ecmd.duplex;
+-	cmd->base.autoneg   	= info->ecmd.autoneg;
+-	cmd->base.port   		= info->ecmd.port;
+-#endif	
+-	return 0;
+-}
+-
+-#if 0	
+-/* Called from AEN which link status changes . Returns link status */
+-int
+-GetEthtoolInfoFromLink (NCSI_IF_INFO *info, UINT32 LinkStatus)
+-{
+-
+-	struct ethtool_cmd *ecmd;
+-
+-	ecmd = &(info->ecmd);
+-	memset(ecmd,0,sizeof(struct ethtool_cmd));
+-	
++    NCSI_FOR_EACH_PACKAGE(ndp, np) {
++    	NCSI_FOR_EACH_CHANNEL(np, nc) {
++    		if(ncsi_channel_has_link(nc)){	
++    			LinkStatus = nc->modes[NCSI_MODE_LINK].data[2];
++				goto update_ethtool;
++    		}
++    	}
++    }
++    
++update_ethtool:            
++    memset(&ecmd,0,sizeof(struct ethtool_cmd));
++    
+ 	/* Default values */
+-	ecmd->advertising = 0;
+-	ecmd->speed =  SPEED_10;
+-	ecmd->duplex  = DUPLEX_HALF;
++	ecmd.advertising = 0;
++	ecmd.speed =  SPEED_10;
++	ecmd.duplex  = DUPLEX_HALF;
+ 
+ 	/* NCSI supported speeds */
+-	ecmd->supported = (SUPPORTED_Autoneg |
++	ecmd.supported = (SUPPORTED_Autoneg |
+             SUPPORTED_10baseT_Half   | SUPPORTED_10baseT_Full   |
+             SUPPORTED_100baseT_Half  | SUPPORTED_100baseT_Full  |
+             SUPPORTED_1000baseT_Full | SUPPORTED_10000baseT_Full|
+-            SUPPORTED_10000baseT_Full | SUPPORTED_25000baseT_Full);
++            SUPPORTED_10000baseT_Full);
+ 
+ 	/* Not applicable to NCSI. Set some values */
+-	ecmd->port = 0;
+-	ecmd->transceiver = 0;
+-
+-
+-	/* If link is down, return */
+-	if (!(LinkStatus & LINK_STATUS_UP))
+-	{
+-		info->LinkStatus=0;
+-		netif_carrier_off(info->dev);
+-		return 0;
+-	}
+-	info->LinkStatus=1;
+-	netif_carrier_on(info->dev);
++	ecmd.port = 0;
++	ecmd.transceiver = 0;
+ 
+ 	/* If Auto negotitaton is enabled */
+ 	if (LinkStatus & LINK_AUTO_NEG_FLAG)
+ 	{
+-                ecmd->advertising |= ADVERTISED_Autoneg;
+-        	ecmd->autoneg = AUTONEG_ENABLE;
++		ecmd.advertising |= ADVERTISED_Autoneg;
++		ecmd.autoneg = AUTONEG_ENABLE;
+ 	}
+ 
+ 	/* Get the Speed and Duplex */
+ 	switch (LinkStatus & LINK_SPEED_DUPLEX_MASK) 
+ 	{
+ 		case LINK_10THD:
+-			ecmd->speed =  SPEED_10;
+-			ecmd->duplex  = DUPLEX_HALF;
++			ecmd.speed =  SPEED_10;
++			ecmd.duplex  = DUPLEX_HALF;
+ 			break;
+ 		case LINK_10TFD:		
+-			ecmd->speed =  SPEED_10;
+-			ecmd->duplex  = DUPLEX_FULL;
++			ecmd.speed =  SPEED_10;
++			ecmd.duplex  = DUPLEX_FULL;
+ 			break;
+ 		case LINK_100THD:			
+-			ecmd->speed =  SPEED_100;
+-			ecmd->duplex  = DUPLEX_HALF;
++			ecmd.speed =  SPEED_100;
++			ecmd.duplex  = DUPLEX_HALF;
+ 			break;
+ 		case LINK_100TFD:						
+-			ecmd->speed =  SPEED_100;
+-			ecmd->duplex  = DUPLEX_FULL;
++			ecmd.speed =  SPEED_100;
++			ecmd.duplex  = DUPLEX_FULL;
+ 			break;
+ 		case LINK_1000THD:						
+-			ecmd->speed =  SPEED_1000 ;
+-			ecmd->duplex  = DUPLEX_HALF;
++			ecmd.speed =  SPEED_1000 ;
++			ecmd.duplex  = DUPLEX_HALF;
+ 			break;
+ 		case LINK_1000TFD:		
+-			ecmd->speed =  SPEED_1000 ;
+-			ecmd->duplex  = DUPLEX_FULL;
++			ecmd.speed =  SPEED_1000 ;
++			ecmd.duplex  = DUPLEX_FULL;
+ 			break;
+ 		case LINK_10GT:			
+-			ecmd->duplex = DUPLEX_FULL;
+-			ecmd->speed   = SPEED_10000;   //??
++			ecmd.duplex = DUPLEX_FULL;
++			ecmd.speed   = SPEED_10000;   
+ 			break;
+ 		case LINK_100T4:						
+-			ecmd->speed = SPEED_100;
+-			ecmd->duplex = DUPLEX_FULL;	//??
++			ecmd.speed = SPEED_100;
++			ecmd.duplex = DUPLEX_FULL;	
+ 			break;
+ 		case LINK_25GT:			
+-			ecmd->duplex  = DUPLEX_FULL;
+-			ecmd->speed   =  SPEED_25000;	//??
++			ecmd.duplex  = DUPLEX_FULL;
++			ecmd.speed   =  SPEED_25000;	
+ 			break;	
+ 		default:
+-			ecmd->speed = SPEED_10;
+-			ecmd->duplex = DUPLEX_HALF;
++			ecmd.speed = SPEED_10;
++			ecmd.duplex = DUPLEX_HALF;
+ 			break;
+ 	}
+ 
+-	//! Change the proc value according to the actual speed.
+-	UserSpeed = ecmd->speed;
+-	UserDuplex = ecmd->duplex;
+-	UserAutoNeg = ecmd->autoneg;
+-	
+-	/*! Link Partner values valid SerDes=0 AutoNegFlag=1 and AutoNegComplete=1 */
+-	if ((!(LinkStatus & LINK_AUTO_NEG_FLAG)) ||(!(LinkStatus & LINK_AUTO_NEG_COMPLETE)))
+-		return 1;
+-		
++	// Change the proc value according to the actual speed.
++	UserSpeed = ecmd.speed;
++	UserDuplex = ecmd.duplex;
++	UserAutoNeg = ecmd.autoneg;	
+ 
+ 	if (LinkStatus & LINK_PARTNER_1000TFD)	
+-                ecmd->advertising |= ADVERTISED_1000baseT_Full;
++                ecmd.advertising |= ADVERTISED_1000baseT_Full;
+ 	if (LinkStatus & LINK_PARTNER_1000THD)	
+-                ecmd->advertising |= ADVERTISED_1000baseT_Half;
++                ecmd.advertising |= ADVERTISED_1000baseT_Half;
+ 	if (LinkStatus & LINK_PARTNER_100TXFD)	
+-                ecmd->advertising |= ADVERTISED_100baseT_Full;
++                ecmd.advertising |= ADVERTISED_100baseT_Full;
+ 	if (LinkStatus & LINK_PARTNER_100TXHD)	
+-                ecmd->advertising |= ADVERTISED_100baseT_Half;
++                ecmd.advertising |= ADVERTISED_100baseT_Half;
+ 	if (LinkStatus & LINK_PARTNER_10TFD)		
+-                ecmd->advertising |= ADVERTISED_10baseT_Full;
++                ecmd.advertising |= ADVERTISED_10baseT_Full;
+ 	if (LinkStatus & LINK_PARTNER_10THD)		
+-                ecmd->advertising |= ADVERTISED_10baseT_Half;
++                ecmd.advertising |= ADVERTISED_10baseT_Half;
+ 	if (LinkStatus & LINK_PARTNER_100T4)
+-                ecmd->advertising |= ADVERTISED_100baseT_Full;	 //??
++                ecmd.advertising |= ADVERTISED_100baseT_Full;	        
++    
++	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported, ecmd.supported);
++	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising, ecmd.advertising);
++	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.lp_advertising, ecmd.lp_advertising);
++	cmd->base.speed 		= ethtool_cmd_speed(&ecmd);
++	cmd->base.duplex 		= ecmd.duplex;
++	cmd->base.autoneg   	= ecmd.autoneg;
++	cmd->base.port   		= ecmd.port;
+ 
+-	return 1;
++	return 0;
+ }
+ 
+-
+-/* Called when a channel is enabled */
+-void
+-InitEthtoolInfo(NCSI_IF_INFO *info)
+-{
+-	int index;
+-	//struct ethtool_cmd *ecmd;
+-	UINT32 LinkStatus;
+-
+-	//ecmd = &(info->ecmd);
+-	
+-	/* If link is up on any of the enabled channel, then return link up */
+-	for (index = 0; index < MAX_CHANNELS ; index ++)
+-	{
+-		if (info->ChannelInfo[index].Enabled == 0)
+-			continue;
+-
+-		msleep(1000);  //Adding a delay of 1 second before issuing GetLinkStatus command to get the proper link status
+-		if (NCSI_Issue_GetLinkStatus(info,info->ChannelInfo[index].PackageID,info->ChannelInfo[index].ChannelID,&LinkStatus) != NCSI_ERR_SUCCESS)
+-		{
+-			printk("NCSI(%s): ERROR: GetLinkStatus(%d.%d) Failed \n",info->dev->name,info->ChannelInfo[index].PackageID,info->ChannelInfo[index].ChannelID);
+-			continue;
+-		}
+-
+-		/* Note: we are returning values only for the first found channel with link up */
+-		if (LinkStatus & LINK_STATUS_UP)
+-		{
+-			GetEthtoolInfoFromLink (info,LinkStatus);
+-			return;
+-		}
+-	}
+-	
+-	/* Set the default values */
+-	GetEthtoolInfoFromLink (info,0);
+-	return;
+-}
+-#endif
+diff -Naur linux_org/net/ncsi/internal.h linux/net/ncsi/internal.h
+--- linux_org/net/ncsi/internal.h	2021-08-09 18:03:05.382175000 +0800
++++ linux/net/ncsi/internal.h	2021-08-04 14:03:01.218969000 +0800
+@@ -247,8 +247,7 @@
+ 
+ struct ncsi_poll_link_status {
+ 	bool is_enable;
+-	unsigned char old_status;
+-	unsigned char status;	
++	u32 status;	
+ 	unsigned char id;
+ };
+ 
+@@ -266,6 +265,7 @@
+ 	u32                  snd_seq;     /* netlink sending sequence number */
+ 	u32                  snd_portid;  /* netlink portid of sender        */
+ 	struct nlmsghdr      nlhdr;       /* netlink message header          */
++	unsigned char        retry;      /* retry time           */
+ };
+ 
+ enum {
+diff -Naur linux_org/net/ncsi/ncsi-cmd.c linux/net/ncsi/ncsi-cmd.c
+--- linux_org/net/ncsi/ncsi-cmd.c	2021-08-09 18:03:05.382175000 +0800
++++ linux/net/ncsi/ncsi-cmd.c	2021-08-04 14:03:01.218969000 +0800
+@@ -414,6 +414,7 @@
+ 	 * connection a 1 second delay should be sufficient.
+ 	 */
+ 	nr->enabled = true;
++	nr->retry = 2;
+ 	mod_timer(&nr->timer, jiffies + (1 * HZ)/5);
+ 	
+ 	if(verbose)
+@@ -428,7 +429,7 @@
+ 	}
+ 
+ 	//Dump Packet Payload
+-	if(verbose)
++	if(verbose & 0x2)
+ 		if(nr->cmd)
+ 			pkt_hex_dump(nr->cmd);	
+ 	
+diff -Naur linux_org/net/ncsi/ncsi-manage.c linux/net/ncsi/ncsi-manage.c
+--- linux_org/net/ncsi/ncsi-manage.c	2021-08-09 18:03:05.382175000 +0800
++++ linux/net/ncsi/ncsi-manage.c	2021-08-04 16:53:33.492823889 +0800
+@@ -63,7 +63,6 @@
+ 		goto report;
+ 	}
+ 
+-	nd->link_up = 0;
+ 	NCSI_FOR_EACH_PACKAGE(ndp, np) {
+ 		NCSI_FOR_EACH_CHANNEL(np, nc) {
+ 			spin_lock_irqsave(&nc->lock, flags);
+@@ -83,8 +82,15 @@
+ 			spin_unlock_irqrestore(&nc->lock, flags);
+ 		}
+ 	}
++	nd->link_up = 0;
+ 
+ report:
++	if(rtnl_trylock()){
++		call_netdevice_notifiers(NETDEV_CHANGE,nd->dev);
++		rtnl_unlock();
++	}
++	else
++		call_netdevice_notifiers(NETDEV_CHANGE,nd->dev);
+ 	nd->handler(nd);	
+ }
+ 
+@@ -113,7 +119,7 @@
+ 	}
+ 
+ 	if(verbose){
+-		printk("ndp->polling.status = %x\n", ndp->polling.status);
++		printk("ndp->polling.status = %x, ndp->polling.id = %d\n", ndp->polling.status, ndp->polling.id);
+ 	}
+ 	
+ 	if(!((ndp->polling.status >> ndp->polling.id)&0x1)){					
+@@ -130,14 +136,14 @@
+ 		if(!enable)
+ 			goto out;				
+ 		
+-		ncsi_update_tx_channel(ndp, nc->package, disable, enable);		
++		ncsi_update_tx_channel(ndp, nc->package, disable, enable);
++		ncsi_report_link(ndp, false);
+ 	}
+ 
+-out:
+-	ndp->polling.old_status = ndp->polling.status;
++out:	
+ 	ndp->polling.status = 0;
+-#ifdef CONFIG_FEATURE_NCSI_TIMER_DEALAY_FOR_GET_LINK_STATUS
+-	mod_timer(&nc->monitor.timer, jiffies + (CONFIG_FEATURE_NCSI_TIMER_DEALAY_FOR_GET_LINK_STATUS*HZ));
++#ifdef CONFIG_SPX_FEATURE_NCSI_TIMER_DEALAY_FOR_GET_LINK_STATUS
++	mod_timer(&nc->monitor.timer, jiffies + (CONFIG_SPX_FEATURE_NCSI_TIMER_DEALAY_FOR_GET_LINK_STATUS*HZ));
+ #else
+ 	mod_timer(&nc->monitor.timer, jiffies + (2*HZ));
+ #endif
+@@ -155,7 +161,6 @@
+ 	nc->monitor.state = NCSI_CHANNEL_MONITOR_START;	
+ 	ndp->polling.is_enable = 1;
+ 	ndp->polling.status = 0;
+-	ndp->polling.old_status = 0;
+ 	ndp->polling.id = 32;
+ 	spin_unlock_irqrestore(&nc->lock, flags);
+ 
+@@ -165,8 +170,8 @@
+ void ncsi_stop_channel_monitor(struct ncsi_channel *nc)
+ {
+ 	unsigned long flags;
+-#if defined(CONFIG_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
+-	defined(CONFIG_FEATURE_POLL_FOR_ASYNC_RESET)		
++#if defined(CONFIG_SPX_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
++	defined(CONFIG_SPX_FEATURE_POLL_FOR_ASYNC_RESET)		
+ 	struct ncsi_package *np = nc->package;
+ 	struct ncsi_dev_priv *ndp = np->ndp;
+ #endif
+@@ -178,8 +183,8 @@
+ 	}
+ 	nc->monitor.enabled = false;
+ 	spin_unlock_irqrestore(&nc->lock, flags);
+-#if defined(CONFIG_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
+-	defined(CONFIG_FEATURE_POLL_FOR_ASYNC_RESET) 
++#if defined(CONFIG_SPX_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
++	defined(CONFIG_SPX_FEATURE_POLL_FOR_ASYNC_RESET) 
+ 	/* Initial polling mode */ 	
+ 	ndp->polling.is_enable = 0;
+ #endif
+@@ -432,7 +437,8 @@
+ 	struct ncsi_package *np;
+ 	struct ncsi_channel *nc;
+ 	unsigned long flags;
+-
++	int ret;
++	
+ 	/* If the request already had associated response,
+ 	 * let the response handler to release it.
+ 	 */
+@@ -444,6 +450,28 @@
+ 	}
+ 	spin_unlock_irqrestore(&ndp->lock, flags);
+ 
++	if(nr->retry > 0)
++	{		
++		nr->retry--;
++		nr->enabled = true;
++		mod_timer(&nr->timer, jiffies + (1 * HZ)/5);
++							
++		if(verbose){
++			cmd = (struct ncsi_cmd_pkt *)skb_network_header(nr->cmd);
++			printk("NCSI(%d,%d): Retry packet with type 0x%02x\n", (cmd->cmd.common.channel & 0xe0)>>5, (cmd->cmd.common.channel & 0x1f), cmd->cmd.common.type);		
++		}
++		
++		/* Send NCSI packet */
++		skb_get(nr->cmd);
++		ret = dev_queue_xmit(nr->cmd);
++		if (ret < 0) {
++			ncsi_free_request(nr);
++			return;
++		}
++		
++		return;
++	}
++	
+ 	if (nr->flags == NCSI_REQ_FLAG_NETLINK_DRIVEN) {
+ 		if (nr->cmd) {
+ 			/* Find the package */
+@@ -939,7 +967,7 @@
+ 		}
+ 	}
+ 
+-	if (disable == enable)
++	if ((disable == enable) && (InitComplete == 1))
+ 		return -1;
+ 
+ 	if (!enable)
+@@ -1130,7 +1158,7 @@
+ 		} else if (nd->state == ncsi_dev_state_config_ae) {
+ 			nca.type = NCSI_PKT_CMD_AE;
+ 			nca.bytes[0] = 0;
+-#ifndef FEATURE_DISABLE_AEN_SUPPORT
++#ifndef CONFIG_SPX_FEATURE_DISABLE_AEN_SUPPORT
+ 			nca.dwords[1] = nc->caps[NCSI_CAP_AEN].cap;
+ #else
+ 			nca.dwords[1] = 0;
+@@ -1324,7 +1352,7 @@
+ 		}
+ 	}
+ 
+-#ifdef CONFIG_FEATURE_NCSI_DISABLE_HW_ARBITRATION	
++#ifdef CONFIG_SPX_FEATURE_NCSI_DISABLE_HW_ARBITRATION	
+ 	ndp->flags |= NCSI_DEV_HWA;
+ 	return false;
+ #endif	
+@@ -1620,6 +1648,20 @@
+ 		return ncsi_choose_active_channel(ndp);
+ 	}
+ 
++	if(InitComplete == 0){
++		struct ncsi_package *np_init;
++		struct ncsi_channel *nc_init;
++		
++		NCSI_FOR_EACH_PACKAGE(ndp, np_init) {
++			NCSI_FOR_EACH_CHANNEL(np_init, nc_init) {				
++				if(ncsi_channel_has_link(nc_init)){
++					if(ncsi_update_tx_channel(ndp, nc_init->package, NULL, nc_init) == 0)
++						break;
++				}
++			}
++		}
++	}
++	
+ 	InitComplete = 1;
+ 	ncsi_report_link(ndp, false);
+ 	return -ENODEV;
+@@ -1813,8 +1855,8 @@
+ 	ndp->ptype.dev = dev;
+ 	dev_add_pack(&ndp->ptype);
+ 
+-#if defined(CONFIG_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
+-	defined(CONFIG_FEATURE_POLL_FOR_ASYNC_RESET) 
++#if defined(CONFIG_SPX_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS) ||\
++	defined(CONFIG_SPX_FEATURE_POLL_FOR_ASYNC_RESET) 
+ 	/* Initial polling mode */ 
+ 	ndp->polling.is_enable = 0;
+ #else	
+@@ -1885,10 +1927,6 @@
+ 	struct ncsi_channel *nc, *active, *tmp;
+ 	struct ncsi_package *np;
+ 	unsigned long flags;
+-
+-	//Make sure NCSI command able to send
+-	netif_carrier_on(ndp->ndev.dev);	
+-	msleep(100);
+ 	
+ 	spin_lock_irqsave(&ndp->lock, flags);
+ 
+@@ -1955,6 +1993,8 @@
+ 		spin_lock_irqsave(&ndp->lock, flags);
+ 		ndp->flags &= ~NCSI_DEV_RESET;
+ 		spin_unlock_irqrestore(&ndp->lock, flags);
++		ndp->polling.id = 32;	
++		msleep(500);
+ 		return ncsi_choose_active_channel(ndp);
+ 	}
+ 
+diff -Naur linux_org/net/ncsi/ncsi-rsp.c linux/net/ncsi/ncsi-rsp.c
+--- linux_org/net/ncsi/ncsi-rsp.c	2021-08-09 18:03:05.382175000 +0800
++++ linux/net/ncsi/ncsi-rsp.c	2021-08-04 14:03:01.218969000 +0800
+@@ -329,19 +329,9 @@
+ 	ncm = &nc->modes[NCSI_MODE_LINK];
+ 	ncm->data[2] = ntohl(rsp->status);
+ 	ncm->data[3] = ntohl(rsp->other);
+-	ncm->data[4] = ntohl(rsp->oem_status);
+-
+-#ifdef CONFIG_FEATURE_POLL_FOR_ASYNC_RESET
+-	if(rsp->rsp.reason == NCSI_PKT_RSP_R_INTERFACE)
+-	{
+-		printk("Asynchronous Reset Detected !!!\n");			
+-		printk("NCSI(%d.%d): Reset for NCSI Interface..\n",NCSI_PACKAGE_INDEX(rsp->rsp.common.channel), NCSI_CHANNEL_INDEX(rsp->rsp.common.channel));
+-		ncsi_reset_dev(&ndp->ndev);
+-		return 0;
+-	}
+-#endif		
++	ncm->data[4] = ntohl(rsp->oem_status);		
+ 	
+-#ifdef CONFIG_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS	   
++#ifdef CONFIG_SPX_FEATURE_NCSI_GET_LINK_STATUS_FOR_NON_AEN_SUPPORTED_CONTROLLERS	   
+ 	if(ntohl(rsp->status)&0x1)
+ 		ndp->polling.status |= (0x1 << NCSI_CHANNEL_INDEX(rsp->rsp.common.channel));
+ #endif			
+@@ -1128,6 +1118,9 @@
+ 	struct ncsi_dev_priv *ndp;
+ 	struct ncsi_request *nr;
+ 	struct ncsi_pkt_hdr *hdr;
++#ifdef CONFIG_SPX_FEATURE_POLL_FOR_ASYNC_RESET
++	struct ncsi_rsp_pkt_hdr *h;
++#endif
+ 	unsigned long flags;
+ 	int payload, i, ret;
+ 
+@@ -1196,6 +1189,18 @@
+ 						      &nr->nlhdr,
+ 						      ret);
+ 		}
++
++#ifdef CONFIG_SPX_FEATURE_POLL_FOR_ASYNC_RESET
++		h = (struct ncsi_rsp_pkt_hdr *)skb_network_header(nr->rsp);
++
++		if((ntohs(h->reason) == NCSI_PKT_RSP_R_INTERFACE) && InitComplete == 1)
++		{
++			printk("Asynchronous Reset Detected !!!\n");			
++			printk("NCSI(%d.%d): Reset for NCSI Interface..\n",NCSI_PACKAGE_INDEX(h->common.channel), NCSI_CHANNEL_INDEX(h->common.channel));
++			InitComplete = 0;
++			ncsi_reset_dev(&ndp->ndev);
++		}
++#endif		
+ 		goto out;
+ 	}
+ 

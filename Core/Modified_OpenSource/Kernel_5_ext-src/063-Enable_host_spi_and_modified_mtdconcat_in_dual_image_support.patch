@@ -1,0 +1,106 @@
+--- linux_old/drivers/mtd/spi-nor/aspeed-smc.c	2021-04-07 17:29:41.606128936 +0530
++++ linux/drivers/mtd/spi-nor/aspeed-smc.c	2021-04-07 17:34:52.086025303 +0530
+@@ -15,6 +15,7 @@
+ #include <linux/mutex.h>
+ #include <linux/mtd/mtd.h>
+ #include <linux/mtd/partitions.h>
++#include <linux/mtd/concat.h>
+ #include <linux/mtd/spi-nor.h>
+ #include <linux/of.h>
+ #include <linux/of_platform.h>
+@@ -24,6 +25,11 @@
+ 
+ #define DEVICE_NAME	"aspeed-smc"
+ 
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT) && defined (CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK)
++static struct mtd_info *bmc_mtd[2];
++static struct mtd_info *concat_mtd = NULL;
++#endif
++
+ /*
+  * The driver only support SPI flash
+  */
+@@ -1561,9 +1567,48 @@
+ 		if (ret)
+ 			break;
+ 
+-		ret = mtd_device_register(mtd, NULL, 0);
+-		if (ret)
+-			break;
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT) && defined (CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK)
++                /*In case of dual image, directly concat the mtd0 and mtd1 before registering individual mtd device,
++                 * to avoid concatenated device shown as sepreate device */
++                if((strncmp(mtd->name,"bmc",3) == 0) && (cs <= 1))
++                {
++                        if(cs == 0)
++                        {
++                                bmc_mtd[cs]=mtd; //Store MTD device 0 information
++                        }else{
++                                bmc_mtd[cs]=mtd; //Store MTD device 1 information
++
++                                /* Concatenating MTD devices 0 and 1 into device ahb:mtdconcat@0 */
++                                concat_mtd = mtd_concat_create(bmc_mtd,2,"ahb:mtdconcat@0");
++
++                                if (!concat_mtd){
++                                        printk("ERROR: init_ractrends_flash: flash concat failed\n");
++                                        return -ENXIO;
++                                }
++
++                                /*Registering device ahb:mtdconcat@0*/
++                                ret = mtd_device_register(concat_mtd, NULL, 0);
++                                if (ret){
++                                        printk("mtd_device_register error");
++                                        break;
++                                }
++                        }
++                }
++                else
++                {
++                        ret = mtd_device_register(mtd, NULL, 0);
++                        if (ret){
++                                printk("mtd_device_register error");
++                                break;
++                        }
++                }
++#else
++                ret = mtd_device_register(mtd, NULL, 0);
++                if (ret){
++                        printk("mtd_device_register error");
++                        break;
++                }
++#endif
+ 
+ 		controller->chips[cs] = chip;
+ 
+--- linux_old/drivers/mtd/mtdpart.c	2021-04-07 17:29:41.494130605 +0530
++++ linux/drivers/mtd/mtdpart.c	2021-04-07 17:35:49.649419485 +0530
+@@ -962,6 +962,9 @@
+ {
+ 	struct mtd_partitions pparts = { };
+ 	struct mtd_part_parser *parser;
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT) && defined (CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK)
++        const char *spx_partition = "spx-fmh";
++#endif
+ 	int ret, err = 0;
+ 
+ 	if (!types)
+@@ -984,6 +987,19 @@
+ 				parser = mtd_part_parser_get(*types);
+ 			pr_debug("%s: got parser %s\n", master->name,
+ 				parser ? parser->name : NULL);
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT) && defined (CONFIG_SPX_FEATURE_DEDICATED_SPI_FLASH_BANK)
++                        if(strncmp(master->name,"ahb:mtdconcat@0",15) == 0)
++                        {
++				/* To get partition count from spx-fmh partitions*/
++                                parser = mtd_part_parser_get(spx_partition);
++                                if (!parser && !request_module("%s", spx_partition)) {
++                                        parser = mtd_part_parser_get(spx_partition);
++				}
++
++                                pr_debug("%s: got parser %s\n", master->name,
++                                                parser ? parser->name : NULL);
++                        }
++#endif
+ 			if (!parser)
+ 				continue;
+ 			ret = mtd_part_do_parse(parser, master, &pparts, data);

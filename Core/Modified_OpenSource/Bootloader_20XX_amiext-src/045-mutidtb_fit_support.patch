@@ -1,0 +1,94 @@
+diff -Naur uboot_org/common/bootm.c uboot/common/bootm.c
+--- uboot_org/common/bootm.c	2021-09-21 14:55:05.648126197 +0530
++++ uboot/common/bootm.c	2021-09-21 14:56:38.764281758 +0530
+@@ -870,6 +870,36 @@
+ }
+ #endif
+ 
++
++
++int fit_get_env_dtb(const char **conf_uname)
++{
++	char *selector = NULL;
++	//char dtbsource[128] ={0};
++	int retval=-1;
++	selector = env_get("dtbsource");
++	if(selector != NULL)
++	{
++		//printf("\n selector=%s\n",selector);
++		*conf_uname=(char*)malloc(sizeof(char) *128);
++		retval = snprintf((char*)*conf_uname,128,"conf@%s.dtb",selector);
++		if(retval < 0 || retval >= 128)
++		{
++			printf("\n error in copying data");
++			return retval;
++		}
++		//printf("\n dtbsource=%s---retval=%d\n",dtbsource,retval);
++		//memcpy((char*)conf_uname,dtbsource,retval);
++		//printf("\n conf_uname=%s\n",*conf_uname);
++	}
++	else
++	{
++		return -1;
++	}
++	
++	return 0;
++}
++
+ /**
+  * boot_get_kernel - find kernel image
+  * @os_data: pointer to a ulong variable, will hold os data start address
+@@ -959,6 +989,7 @@
+ #endif
+ #if IMAGE_ENABLE_FIT
+ 	case IMAGE_FORMAT_FIT:
++		fit_get_env_dtb(&fit_uname_config);
+ 		os_noffset = fit_image_load(images, img_addr,
+ 				&fit_uname_kernel, &fit_uname_config,
+ 				IH_ARCH_DEFAULT, IH_TYPE_KERNEL,
+diff -Naur uboot_org/oem/ami/fmh/cmd_fmh.c uboot/oem/ami/fmh/cmd_fmh.c
+--- uboot_org/oem/ami/fmh/cmd_fmh.c	2021-09-21 14:55:05.772126865 +0530
++++ uboot/oem/ami/fmh/cmd_fmh.c	2021-09-29 15:19:18.023459131 +0530
+@@ -33,7 +33,7 @@
+ #endif
+ 
+ #define  KERNEL_LOADADDR    0xC00000
+-#define  KERNEL_FILE        "/boot/ast2600evb_fit"
++#define  KERNEL_FILE        "/boot/kernel_fit"
+ #define  KERNEL_DTB         "/boot/kernel.dtb"
+ 
+ #ifdef CONFIG_SPX_FEATURE_SECURE_BOOT_ENCRYPTION_SUPPORT
+@@ -945,14 +945,21 @@
+ #if 1
+ 	char Command[128] = "bootm";
+ 	char AddrStr[128] = "0xFFFFFFFF";
++	char dtbname[128]={0};
+ #if defined(CONFIG_SPX_FEATURE_MMC_BOOT) || defined(CONFIG_SPX_FEATURE_HW_EMMC_BOOT)  
+-	char AddrStr2[128] = "0xFFFFFFFF";
++	//char AddrStr2[128] = "0xFFFFFFFF";
+ #endif
+ 	char bootargs[256] = {0};
+ 	char imagebooted[16] = {0};
+     char goldenside[16];
+ 	char INITRDAddrStr[128] = "0xFFFFFFFF";
+ 	char dtsaddrstr[128] = "0xFFFFFFFF";
++	
++	memset(dtbname,'\0',128);
++	if((Get_DTB_From_Soc_ID(dtbname) > 0) && (Get_DTB_From_Soc_ID(dtbname) < 128))
++	{
++		env_set("dtbsource",dtbname);
++	}
+ #ifdef CONFIG_SPX_FEATURE_SECURE_BOOT_ENCRYPTION_SUPPORT	
+ 	char lenStr[128] = "0xFFFFFFFF";
+ 	char INITRDLenStr[128] = "0xFFFFFFFF";
+@@ -1717,7 +1724,7 @@
+ 			else
+ 			{
+ 				//env_set("initrd_high","off");
+-				retval = do_bootm(NULL,0,2,argv);
++				retval = do_bootm(NULL,0,3,argv);
+ 			}
+ 			console_assign(stdout,"serial");
+ 			printf("Failed\n");
+
+\ No newline at end of file

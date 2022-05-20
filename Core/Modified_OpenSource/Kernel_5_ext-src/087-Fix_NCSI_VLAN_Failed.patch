@@ -1,0 +1,84 @@
+diff -Naur linux_org/net/ncsi/internal.h linux/net/ncsi/internal.h
+--- linux_org/net/ncsi/internal.h	2021-09-02 15:59:08.190395906 +0800
++++ linux/net/ncsi/internal.h	2021-09-02 16:00:25.283101337 +0800
+@@ -47,7 +47,7 @@
+ 	NCSI_CAP_AEN_MASK                = 0x07,
+ 	NCSI_CAP_VLAN_ONLY               = 0x01, /* Filter VLAN packet only  */
+ 	NCSI_CAP_VLAN_NO                 = 0x02, /* Filter VLAN and non-VLAN */
+-	NCSI_CAP_VLAN_ANY                = 0x04, /* Filter Any-and-non-VLAN  */
++	NCSI_CAP_VLAN_ANY                = 0x03, /* Filter Any-and-non-VLAN  */
+ 	NCSI_CAP_VLAN_MASK               = 0x07
+ };
+ 
+diff -Naur linux_org/net/ncsi/ncsi-manage.c linux/net/ncsi/ncsi-manage.c
+--- linux_org/net/ncsi/ncsi-manage.c	2021-09-02 15:51:20.594377655 +0800
++++ linux/net/ncsi/ncsi-manage.c	2021-09-02 16:00:46.874178631 +0800
+@@ -1107,7 +1107,7 @@
+ 				nca.type = NCSI_PKT_CMD_DV;
+ 			} else {
+ 				nca.type = NCSI_PKT_CMD_EV;
+-				nca.bytes[3] = NCSI_CAP_VLAN_NO;
++				nca.bytes[3] = NCSI_CAP_VLAN_ONLY;
+ 			}
+ 			nd->state = ncsi_dev_state_config_sma;
+ 		} else if (nd->state == ncsi_dev_state_config_sma) {
+@@ -1911,8 +1911,8 @@
+ 			old_state = nc->state;
+ 			spin_unlock_irqrestore(&nc->lock, flags);
+ 
+-			WARN_ON_ONCE(chained ||
+-				     old_state == NCSI_CHANNEL_INVISIBLE);
++			//WARN_ON_ONCE(chained ||
++				     //old_state == NCSI_CHANNEL_INVISIBLE);
+ 		}
+ 	}
+ 
+diff -Naur linux_org/net/ncsi/proc.c linux/net/ncsi/proc.c
+--- linux_org/net/ncsi/proc.c	2021-09-02 15:52:25.883587767 +0800
++++ linux/net/ncsi/proc.c	2021-09-02 15:51:47.337234904 +0800
+@@ -46,7 +46,8 @@
+ char UserInterface[8] = "eth1";
+ #endif
+ int UserEnable = 0;
+-int UserVlanID=0;
++u16 UserVlanID=0;
++u16 UserVlanID_old=0;
+ int UserFlowcontrol=0;
+ int UserSpeed=0;
+ int UserDuplex=1;
+@@ -274,10 +275,33 @@
+ proc_setvlanid(struct ctl_table *ctl,int write,void *buffer,size_t *lenp, loff_t *pos)
+ {
+ 	int retval;
++	struct net_device *dev;
++	
+ 	retval = proc_dointvec(ctl,write,buffer,lenp,pos);
++
++	if((UserVlanID == 1) || (UserVlanID > 4094))
++	{
++		printk("Invalid VLAN ID value\n");
++		return retval;
++	}
++
++	dev = dev_get_by_name(&init_net,UserInterface);
++	if (dev == NULL)
++	{
++		printk("NCSI: ERROR: Unable to get device for %s\n",UserInterface);
++		return retval;
++	}
++	
++	if(UserVlanID == 0)
++		ncsi_vlan_rx_kill_vid(dev, 0, UserVlanID_old);
++	else
++	{
++		ncsi_vlan_rx_kill_vid(dev, 0, UserVlanID_old);
++		ncsi_vlan_rx_add_vid(dev, 0, UserVlanID);
++	}
++	
++	UserVlanID_old = UserVlanID;
+ 	
+-	/* Set VLAN Filter , Enable VLAN */
+-	//SetUserSettings(UserVlanID);
+  	return retval;
+ }
+ 

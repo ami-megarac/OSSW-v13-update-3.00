@@ -1,0 +1,250 @@
+diff -ruN linux/drivers/watchdog/aspeed_wdt.c linux_n/drivers/watchdog/aspeed_wdt.c
+--- linux/drivers/watchdog/aspeed_wdt.c	2021-03-05 14:18:57.489399000 +0800
++++ linux_n/drivers/watchdog/aspeed_wdt.c	2021-03-05 15:06:01.086857856 +0800
+@@ -12,6 +12,11 @@
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/watchdog.h>
++#include <linux/irq.h>
++#include <linux/of_irq.h>
++#include <asm/irq.h>
++#include <linux/interrupt.h>
++#include <linux/sched/signal.h>
+ 
+ struct aspeed_wdt {
+ 	struct watchdog_device	wdd;
+@@ -57,6 +62,21 @@
+ #define WDT_CLEAR_TIMEOUT_STATUS	0x14
+ #define   WDT_CLEAR_TIMEOUT_AND_BOOT_CODE_SELECTION	BIT(0)
+ 
++#define AST_WATCHDOG_CTRL       0x0C
++#define AST_WATCHDOG_TIMEOUT    0x10
++#define AST_WATCHDOG_CLEAR      0x14
++#define AST_WATCHDOG_CTRL_INTERRUPT     0x04
++#define AST_WATCHDOG_RELOAD_MAGIC       0x4755
++#define AST_WATCHDOG_RESTART    0x08
++#define AST_WATCHDOG_VALUE      0x04
++#define AST_WATCHDOG_PRETIMEOUT_1S    0x000F4200
++#define AST_WATCHDOG_INDICATE_ISR     0x00000004
++
++#define AST_WATCHDOG_RESET_MASK 0x1c
++#define AST_WATCHDOG_CTRL_CLOCK         0x10
++#define AST_WATCHDOG_CTRL_INTERRUPT     0x04
++#define AST_WATCHDOG_CTRL_RESET         0x02
++#define AST_WATCHDOG_CTRL_ENABLE        0x01
+ /*
+  * WDT_RESET_WIDTH controls the characteristics of the external pulse (if
+  * enabled), specifically:
+@@ -98,9 +118,21 @@
+ 
+ #define OFFSET_CALCULATOR 0x40
+ 
++#define WDT_INT_ID 24
++#define AST_WATCHDOG_REG_BASE   0x1E785000
++#define AST_WATCHDOG_REG_LEN    SZ_4K
++#define AST_WATCHDOG_DRIVER_NAME "aspeed_wdt"
++#define MAX_WDT_DEVICES 1
++#define WDT_PRETIMEOUT_SIGNAL 46
++
+ extern int *current_wdt_no ;
+ static int old_wdt_no = 1;
+ int *old_wdt =& old_wdt_no ;
++static int current_wdt_device = 1;
++static void *ast_watchdog_virt_base;
++static u32 current_receiver_pid=0;
++static u32 current_extend_time=0;
++static int wdt_irq=0;
+ 
+ static struct aspeed_wdt *to_aspeed_wdt(struct watchdog_device *wdd)
+ {
+@@ -205,6 +237,85 @@
+ 	return size;
+ }
+ 
++static int send_sig_to_pid(int cur_pid)
++{
++    int sig=WDT_PRETIMEOUT_SIGNAL;
++    int pid = cur_pid;
++    int ret;
++    struct kernel_siginfo info;
++    struct task_struct *t;
++    printk("send a signal to %04x pid\n", pid);
++    memset(&info, 0, sizeof(struct kernel_siginfo));
++    
++    info.si_signo = sig;
++    info.si_code = SI_QUEUE;
++ 
++    rcu_read_lock();
++    /* find the task with current pid */
++    t = pid_task(find_pid_ns(pid, &init_pid_ns), PIDTYPE_PID);  
++    if(t == NULL){
++        printk("no this pid:%X\n",cur_pid);
++        rcu_read_unlock();
++        return -ENODEV;
++    }
++    rcu_read_unlock();
++ 
++    /* send the signal PID*/
++    ret = send_sig_info(sig, &info, t);
++    if (ret < 0) {
++        printk("error sending signal\n");
++        return ret;
++    }	
++	
++    return 0;
++}
++static irqreturn_t ast_watchdog_irq_handler(int irq, void *dev_id)
++{
++	uint32_t reg = 0,i = 0;
++	uint8_t  Ispretimeout = false;
++    	/***check per watchdogs interrupt status***/
++	for(i = 1; i <= MAX_WDT_DEVICES ; i++)
++	{
++		reg = ioread32((void __iomem*)ast_watchdog_virt_base+(i-1)*OFFSET_CALCULATOR + AST_WATCHDOG_TIMEOUT);
++		if(reg & AST_WATCHDOG_INDICATE_ISR)
++		{
++		    reg = ioread32((void __iomem*)ast_watchdog_virt_base+(i-1)*OFFSET_CALCULATOR + AST_WATCHDOG_CLEAR);
++		    reg = reg | 0x01; // clear interrupt status
++		    iowrite32(reg, (void __iomem*)ast_watchdog_virt_base+(i-1)*OFFSET_CALCULATOR + AST_WATCHDOG_CLEAR);
++		    Ispretimeout=true; 
++            
++            	    if(current_extend_time!=0)
++            	    {
++	              reg = ioread32( (void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR  + AST_WATCHDOG_CTRL);
++	              reg = reg & (~(AST_WATCHDOG_PRETIMEOUT_1S));
++	              reg = reg & (~(AST_WATCHDOG_CTRL_INTERRUPT));
++                      iowrite32(reg, (void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_CTRL);
++                      iowrite32(current_extend_time * WDT_RATE_1MHZ, ast_watchdog_virt_base +(i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_VALUE);
++                      iowrite32(AST_WATCHDOG_RELOAD_MAGIC, ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_RESTART);
++            	    }
++		    else
++		    {
++			
++			iowrite32(0, (void __iomem*)ast_watchdog_virt_base + ((i - 1)*OFFSET_CALCULATOR)  + WDT_RELOAD_VALUE);
++			iowrite32(WDT_RESTART_MAGIC, ((void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR)  + WDT_RESTART);
++			reg = ioread32( (void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR  + AST_WATCHDOG_CTRL);
++			reg |= (AST_WATCHDOG_PRETIMEOUT_1S|AST_WATCHDOG_CTRL_INTERRUPT);
++			iowrite32(reg, (void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_CTRL);
++		    }
++         	}
++	}
++
++	if(Ispretimeout&&current_receiver_pid!=0)
++	{
++		send_sig_to_pid(current_receiver_pid);
++    	}
++	else if(current_receiver_pid == 0)
++	{
++		printk("there is no PID \n");//test line
++	}
++
++	return IRQ_HANDLED;
++ }
+ /*
+  * This attribute exists only if the system has booted from the alternate
+  * flash with 'alt-boot' option.
+@@ -247,6 +358,25 @@
+ 	.identity	= KBUILD_MODNAME,
+ };
+ 
++
++static void ast_watchdog_set_pretimeout(void)
++{
++	uint32_t reg = 0;
++	/* pre-timeout set 1 second */
++	reg = ioread32( (void __iomem*)ast_watchdog_virt_base + (current_wdt_device - 1)*OFFSET_CALCULATOR  + AST_WATCHDOG_CTRL);
++	reg = reg | AST_WATCHDOG_PRETIMEOUT_1S;
++    	reg = reg | AST_WATCHDOG_CTRL_INTERRUPT;
++    	iowrite32(reg, (void __iomem*)ast_watchdog_virt_base + (current_wdt_device - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_CTRL);
++}
++static void ast_watchdog_enable(void)
++{
++        /* we use external 1MHz clock source */
++        iowrite32(AST_WATCHDOG_CTRL_CLOCK | AST_WATCHDOG_CTRL_RESET | AST_WATCHDOG_CTRL_INTERRUPT, ast_watchdog_virt_base + (current_wdt_device - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_CTRL);
++	iowrite32(0, (void __iomem*)ast_watchdog_virt_base + ((current_wdt_device - 1)*OFFSET_CALCULATOR)  + WDT_RELOAD_VALUE);
++	iowrite32(WDT_RESTART_MAGIC, ((void __iomem*)ast_watchdog_virt_base + (current_wdt_device - 1)*OFFSET_CALCULATOR)  + WDT_RESTART);
++	ast_watchdog_set_pretimeout();
++}
++
+ static int aspeed_wdt_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -258,7 +388,7 @@
+ 	u32 duration;
+ 	u32 status;
+ 	int ret;
+-
++	int irq;
+ 	wdt = devm_kzalloc(dev, sizeof(*wdt), GFP_KERNEL);
+ 	if (!wdt)
+ 		return -ENOMEM;
+@@ -281,7 +411,13 @@
+ 	if (!ofdid)
+ 		return -EINVAL;
+ 	config = ofdid->data;
+-
++	irq = irq_of_parse_and_map(dev->of_node, 0);
++	if (irq < 0) 
++	{
++		dev_err(&pdev->dev, "no irq specified\n");
++		ret = -irq;
++		return ret;
++	}
+ 	/*
+ 	 * On clock rates:
+ 	 *  - ast2400 wdt can run at PCLK, or 1MHz
+@@ -386,7 +522,19 @@
+ 	}
+ 
+ 	dev_set_drvdata(dev, wdt);
++	
++	ast_watchdog_virt_base = ioremap(AST_WATCHDOG_REG_BASE, AST_WATCHDOG_REG_LEN);
+ 
++	if(irq != 0)
++	{
++		ret = request_irq(irq, ast_watchdog_irq_handler,IRQF_SHARED,AST_WATCHDOG_DRIVER_NAME,(void *)ast_watchdog_virt_base);
++		if (ret != 0) 
++		{	
++			printk("request_irq WDT failed %d\n",wdt_irq);
++			return ret;
++		}
++	}
++	ast_watchdog_enable();
+ 	return devm_watchdog_register_device(dev, &wdt->wdd);
+ }
+ 
+@@ -397,6 +545,34 @@
+ 		.of_match_table = of_match_ptr(aspeed_wdt_of_table),
+ 	},
+ };
++int set_receiver_pid(const char *val, const struct kernel_param *kp)
++{
++    u32 rPID = 0;
++    int ret = 0;
++
++    ret = kstrtou32(val ,0 ,&rPID);
++    if(ret)
++       goto exit;
++
++    current_receiver_pid=rPID;
++exit:
++
++    return ret;
++}
++
++const struct kernel_param_ops receiver_pid_ops = 
++{
++    .set = &set_receiver_pid, // Use setter funtion to validate input
++    .get = &param_get_ushort,
++};
++
++module_param_cb(current_receiver_pid,    /*filename*/
++    &receiver_pid_ops, /*operations*/
++    &current_receiver_pid,               /* pointer to variable, contained parameter's value */
++    0644    /*permissions on file*/
++);
++
++MODULE_PARM_DESC(current_receiver_pid,"Current Receiver PID");
+ 
+ static int __init aspeed_wdt_init(void)
+ {

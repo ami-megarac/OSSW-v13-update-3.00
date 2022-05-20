@@ -1,0 +1,44 @@
+--- linux/drivers/watchdog/aspeed_wdt.c	2021-08-30 16:34:13.834422000 +0800
++++ linux_n/drivers/watchdog/aspeed_wdt.c	2021-08-31 09:32:41.344420720 +0800
+@@ -291,7 +291,7 @@
+ 	              reg = reg & (~(AST_WATCHDOG_PRETIMEOUT_1S));
+ 	              reg = reg & (~(AST_WATCHDOG_CTRL_INTERRUPT));
+                       iowrite32(reg, (void __iomem*)ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_CTRL);
+-                      iowrite32(current_extend_time * WDT_RATE_1MHZ, ast_watchdog_virt_base +(i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_VALUE);
++                      iowrite32((current_extend_time + 1) * WDT_RATE_1MHZ, ast_watchdog_virt_base +(i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_VALUE);
+                       iowrite32(AST_WATCHDOG_RELOAD_MAGIC, ast_watchdog_virt_base + (i - 1)*OFFSET_CALCULATOR + AST_WATCHDOG_RESTART);
+             	    }
+ 		    else
+@@ -575,6 +575,32 @@
+ );
+ 
+ MODULE_PARM_DESC(current_receiver_pid,"Current Receiver PID");
++int set_extend_time(const char *val, const struct kernel_param *kp)
++{
++	u32 nSec = 0;
++	int ret = 0, reg = 0;
++
++	ret = kstrtou32(val ,0 ,&nSec);
++	if(ret)
++		goto exit;
++	current_extend_time = nSec;
++exit:
++
++    return ret;
++}
++const struct kernel_param_ops extend_time_ops = 
++{
++    .set = &set_extend_time, // Use setter funtion to validate input
++    .get = &param_get_ushort,
++};
++
++module_param_cb(current_extend_time,    /*filename*/
++    &extend_time_ops, /*operations*/
++    &current_extend_time,               /* pointer to variable, contained parameter's value */
++    0644    /*permissions on file*/
++);
++
++MODULE_PARM_DESC(current_extend_time,"current_extend_time");
+ 
+ static int __init aspeed_wdt_init(void)
+ {

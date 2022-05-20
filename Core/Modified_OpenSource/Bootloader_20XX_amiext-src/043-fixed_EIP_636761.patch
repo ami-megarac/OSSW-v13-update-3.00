@@ -1,0 +1,49 @@
+diff -Naur uboot_orig/common/autoboot.c uboot/common/autoboot.c
+--- uboot_orig/common/autoboot.c	2021-09-09 16:24:40.303532572 +0530
++++ uboot/common/autoboot.c	2021-09-09 16:26:59.952360126 +0530
+@@ -28,6 +28,13 @@
+ /* Stored value of bootdelay, used by autoboot_command() */
+ static int stored_bootdelay;
+ 
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++#define FMC_WDT_CONTROL_REG	0x1e620064
++#define WDT_ENABLE		0x01
++#define WDT_RESET_SYSTEM	0x02
++static void Disable_FMC_WDT(void);
++#endif
++
+ #if defined(CONFIG_AUTOBOOT_KEYED)
+ #if defined(CONFIG_AUTOBOOT_STOP_STR_SHA256)
+ 
+@@ -285,6 +292,17 @@
+ }
+ # endif	/* CONFIG_AUTOBOOT_KEYED */
+ 
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++static void Disable_FMC_WDT(void)
++{
++	if(*((volatile unsigned long *)(FMC_WDT_CONTROL_REG)) & (WDT_ENABLE | WDT_RESET_SYSTEM))
++	{
++		printf("\nDisabling FMC WDT.\n");
++		*((volatile unsigned long *)(FMC_WDT_CONTROL_REG)) &= ~(WDT_RESET_SYSTEM | WDT_ENABLE);
++	}
++}
++#endif
++
+ static int abortboot(int bootdelay)
+ {
+ 	int abort = 0;
+@@ -292,6 +310,13 @@
+ 	if (bootdelay >= 0)
+ 		abort = __abortboot(bootdelay);
+ 
++#ifdef CONFIG_SPX_FEATURE_HW_FAILSAFE_BOOT
++	if (abort)
++	{
++		Disable_FMC_WDT();
++	}
++#endif
++
+ #ifdef CONFIG_SILENT_CONSOLE
+ 	if (abort)
+ 		gd->flags &= ~GD_FLG_SILENT;

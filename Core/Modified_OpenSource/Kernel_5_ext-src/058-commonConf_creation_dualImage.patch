@@ -1,0 +1,35 @@
+--- linux/drivers/mtd/parsers/spx-fmh.c	2021-03-03 20:01:10.719591144 -0500
++++ linux_new/drivers/mtd/parsers/spx-fmh.c	2021-03-03 20:01:39.472474378 -0500
+@@ -176,6 +176,32 @@
+ 			sec+=(unsigned long)div_u64(le32_to_host(fmh->FMH_AllocatedSize),SectorSize);
+ 		PartCount++;
+ 	}
++#if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT) && defined (CONFIG_SPX_FEATURE_COMMON_CONF_SECTION)
++        printk("Creating Partition for conf \n");
++        /* Fill the parition information */
++        parts[PartCount].name = kstrndup("conf",16, GFP_KERNEL);
++        if (!parts[PartCount].name)
++		return 0;
++        parts[PartCount].mask_flags = 0;
++	parts[PartCount].types = 0;
++	parts[PartCount].of_node = 0;
++	parts[PartCount].size = CONFIG_SPX_FEATURE_GLOBAL_CONF_SIZE;
++	parts[PartCount].offset = (CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE * 2);
++	PartCount++;
++#ifdef CONFIG_SPX_FEATURE_GLOBAL_FAILSAFECONF	
++        printk("Creating Partition for duplicate conf \n");
++	parts[PartCount].name = kstrndup("conf",16, GFP_KERNEL);
++        if (!parts[PartCount].name)
++                return 0;
++        parts[PartCount].mask_flags = 0;
++        parts[PartCount].types = 0;
++        parts[PartCount].of_node = 0;
++        parts[PartCount].size = CONFIG_SPX_FEATURE_GLOBAL_CONF_SIZE;
++        parts[PartCount].offset = (CONFIG_SPX_FEATURE_GLOBAL_USED_FLASH_SIZE * 2) + CONFIG_SPX_FEATURE_GLOBAL_CONF_SIZE;
++        PartCount++;
++#endif	
++#endif
++
+ #if defined (CONFIG_SPX_FEATURE_GLOBAL_DUAL_IMAGE_SUPPORT)
+ 		if(scan_flag== 1){
+ 			scan_flag=2;

@@ -1,0 +1,82 @@
+--- linux_old/drivers/mtd/spi-nor/aspeed-smc.c	2021-04-15 11:55:55.198768384 +0800
++++ linux/drivers/mtd/spi-nor/aspeed-smc.c	2021-04-15 13:57:00.783548549 +0800
+@@ -1283,6 +1283,47 @@
+ 		(0x01);        /* read mode */
+ }
+ 
++/* Transfer maximum clock frequency to register setting */
++static uint32_t
++aspeed_2600_spi_clk_basic_setting(struct aspeed_smc_chip *chip,
++				  uint32_t *max_clk)
++{
++	uint32_t hclk_clk = chip->controller->clk_frequency;
++	uint32_t hclk_div = 0x400; /* default value */
++	uint32_t i, j = 0;
++	bool found = false;
++	/* HCLK/1 ..	HCLK/16 */
++	uint32_t hclk_masks[] = { 15, 7, 14, 6, 13, 5, 12, 4,
++				  11, 3, 10, 2, 9,  1, 8,  0 };
++
++	/* FMC/SPIR10[27:24] */
++	for (j = 0; j < 0xf; i++) {
++		/* FMC/SPIR10[11:8] */
++		for (i = 0; i < ARRAY_SIZE(hclk_masks); i++) {
++			if (i == 0 && j == 0)
++				continue;
++
++			if (hclk_clk / (i + 1 + (j * 16)) <= *max_clk) {
++				found = 1;
++				*max_clk = hclk_clk / (i + 1 + (j * 16));
++				break;
++			}
++		}
++
++		if (found) {
++			hclk_div = ((j << 24) | hclk_masks[i] << 8);
++			break;
++		}
++	}
++
++	dev_dbg(chip->nor.dev, "found: %s, hclk: %d, max_clk: %d\n", found ? "yes" : "no",
++		hclk_clk, *max_clk);
++	dev_dbg(chip->nor.dev, "base_clk: %d, h_div: %d (mask %x), speed: %d\n", j, i + 1,
++		hclk_masks[i], hclk_clk / (i + 1 + j * 16));
++
++	return hclk_div;
++}
++
+ static int aspeed_smc_optimize_read(struct aspeed_smc_chip *chip,
+ 				     u32 max_freq)
+ {
+@@ -1292,6 +1333,7 @@
+ 	int i, rc, best_div = -1;
+ 	u32 save_read_val = chip->ctl_val[smc_read];
+ 	u32 ahb_freq = chip->controller->clk_frequency;
++	u32 hclk_clk ;
+ 
+ 	dev_dbg(chip->nor.dev, "AHB frequency: %d MHz", ahb_freq / 1000000);
+ 
+@@ -1313,7 +1355,22 @@
+ 	/* Check if calibration data is suitable */
+ 	if (!aspeed_smc_check_calib_data(golden_buf, CALIBRATE_BUF_SIZE)) {
+ 		dev_info(chip->nor.dev,
+-			 "Calibration area too uniform, using low speed");
++			 "flash data is monotonous, skip calibration.");
++		//writel(chip->ctl_val[smc_read], chip->ctl);
++
++		hclk_clk = aspeed_2600_spi_clk_basic_setting(chip, &max_freq);
++
++
++		/* configure SPI clock frequency */
++		save_read_val = readl((chip)->controller->regs + (chip)->controller->info->timing +	(chip)->cs * 4);
++		save_read_val = (save_read_val & 0xf0fff0ff) | hclk_clk;
++		//writel(save_read_val, ((chip)->controller->regs + (chip)->controller->info->timing +	(chip)->cs * 4));
++
++		/* add clock setting info for CE ctrl setting */
++		chip->ctl_val[smc_read] = (chip->ctl_val[smc_read] & 0xf0fff0ff) | hclk_clk;
++		writel(chip->ctl_val[smc_read], chip->ctl);
++		dev_info(chip->nor.dev, "freq: %dMHz\n", max_freq / 1000000);
++		dev_info(chip->nor.dev, "read control register: [%08x]\n",chip->ctl_val[smc_read]);
+ 		writel(chip->ctl_val[smc_read], chip->ctl);
+ 		kfree(test_buf);
+ 		return 0;
